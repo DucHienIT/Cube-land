@@ -1,0 +1,51 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: aeab8f5ab4252e140aa03d07fafbe058, type: 3}
+  m_Name: VisualLibrary
+  m_EditorClassIdentifier: 
+  voxelSets:
+  - colors:
+    - {fileID: 2100000, guid: 86575fe64d9e0624bb2b89c8ea5493cd, type: 2}
+    - {fileID: 2100000, guid: d45c05bc31b19304684427760be89775, type: 2}
+    - {fileID: 2100000, guid: c5b429d459a14574689dc99b7bf4e0d9, type: 2}
+    - {fileID: 2100000, guid: 7a601db0513c7a94f90577bd300c7a9d, type: 2}
+    - {fileID: 2100000, guid: e8c9a1d8195ae004f8260c1f22e6cdf5, type: 2}
+    - {fileID: 2100000, guid: 4744f69f4f20fd34aa1f2e757a98e1ad, type: 2}
+  - colors:
+    - {fileID: 2100000, guid: 498731b2189a5f54b81b861a669efc3d, type: 2}
+    - {fileID: 2100000, guid: 05bce55ed56412b4e9ab558408f9a3ba, type: 2}
+    - {fileID: 2100000, guid: 9b71dda34d0a735419e2732fb4ad0d6c, type: 2}
+    - {fileID: 2100000, guid: 6ed4fa487cb5a8b4c949040be59226e6, type: 2}
+    - {fileID: 2100000, guid: 93292e87da5371d4db3bbd401db82784, type: 2}
+    - {fileID: 2100000, guid: cf8217abf87777c44b504c531b7d1a10, type: 2}
+  - colors:
+    - {fileID: 2100000, guid: 9af49e9f0a515de47a213ce3146cc8fc, type: 2}
+    - {fileID: 2100000, guid: 69c03f93ec982484399bf6a228466def, type: 2}
+    - {fileID: 2100000, guid: b495a1ac362f52d4aaa11bb524ab8ee7, type: 2}
+    - {fileID: 2100000, guid: ebf00f028f3dd8742b15259d45f10ea8, type: 2}
+    - {fileID: 2100000, guid: ad30cf823866f8b45940a2f6291daea1, type: 2}
+    - {fileID: 2100000, guid: 52fbe992174418641b2c15a7ce2dbd62, type: 2}
+  - colors:
+    - {fileID: 2100000, guid: 6f692ea25b8a64041804eccb1d376f0b, type: 2}
+    - {fileID: 2100000, guid: e85585523990d804b9ae1e8a8af35825, type: 2}
+    - {fileID: 2100000, guid: 8c182324ffab528428f6b49cbce37d8c, type: 2}
+    - {fileID: 2100000, guid: b0813faff2689984fa3140ecf9564aba, type: 2}
+    - {fileID: 2100000, guid: 34d175b42636c5540b7141d6fedb0a88, type: 2}
+    - {fileID: 2100000, guid: a9210cf3e586bd14eac1df37562d5bf7, type: 2}
+  slotPad: {fileID: 2100000, guid: 5e78cb96b2de79e4d888286644f5581b, type: 2}
+  dartBullet: {fileID: 2100000, guid: 744b93654d3ad2b48ae51ee49aa95986, type: 2}
+  dartTrail: {fileID: 2100000, guid: 647a0a08a61966a45ad3f988e9f87e63, type: 2}
+  fxBurst: {fileID: 6390261863883648756, guid: 70b2fae3a96521a4982f4c9a66b1be7f, type: 3}
+  fxShards: {fileID: 8015950293737819933, guid: d3720d8578f77e84d96ee95f76b77cc9, type: 3}
+  fxFlash: {fileID: 3615153405164750104, guid: 42e13ac3bb72ebb4e82dd5f4a3f5f49e, type: 3}
+  fxRing: {fileID: 5023083556719337618, guid: 5bacc4c43d966704f94446620440a9c8, type: 3}
+  debrisPrefab: {fileID: 7258436631997892611, guid: 5968f1b7831b6cc4ba9ef6759fc329d5, type: 3}

@@ -1,0 +1,70 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: abb92691e8a784040aa4066c7b976d2e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  targetFrameRate: 60
+  voxelSize: 0.5
+  voxelGap: 0.028
+  voxelCornerRadius: 0.18
+  voxelRoundSegments: 3
+  voxelValueJitter: 0.04
+  voxelHueJitter: 0.02
+  voxelScaleJitter: 0.02
+  ambientSky: {r: 0.95, g: 0.92, b: 0.88, a: 1}
+  ambientEquator: {r: 0.78, g: 0.79, b: 0.88, a: 1}
+  ambientGround: {r: 0.6, g: 0.56, b: 0.76, a: 1}
+  sculptureCenter: {x: 0, y: 3.2, z: 0}
+  sculptureTilt: 55
+  debrisForce: 4.5
+  debrisLife: 1.1
+  debrisTorque: 6
+  debrisMediumCount: 2
+  debrisSmallCount: 3
+  gunSlotCount: 4
+  gunFireInterval: 0.16
+  gunSlotSpacing: 1.35
+  gunSlotY: 0
+  gunSlotZ: -2.6
+  dartSpeed: 22
+  dartLife: 2
+  dartTrailTime: 0.26
+  dartHitScatter: 0
+  bankSlotSpacing: 1.5
+  bankRowSpacing: 0.96
+  bankY: 0
+  bankZ: -4.8
+  bankVisibleRows: 3
+  autoRotateSpeed: 16
+  rotateSensitivity: 0.3
+  autoRotateDelay: 1.6
+  cameraOrthographic: 0
+  cameraPitch: 75
+  cameraFov: 32
+  cameraFitBottomY: -5.2
+  winPopupDelay: 0.7
+  cameraFitPadding: 1.06
+  shakeOnHit: 0
+  toonHighlight: {r: 0.98, g: 0.96, b: 0.93, a: 1}
+  toonShadow: {r: 0.54, g: 0.47, b: 0.72, a: 1}
+  toonRampThreshold: 0.38
+  toonRampSmoothing: 0.5
+  toonSpecSize: 0.38
+  toonSpecSmoothing: 0.78
+  toonSpecColor: {r: 0.72, g: 0.7, b: 0.66, a: 1}
+  postProcessing: 1
+  postBloomIntensity: 0.1
+  postVignette: 0.12
+  postSaturation: 12
+  postContrast: 6
+  postExposure: 0
+  coinsPerLevel: 20
