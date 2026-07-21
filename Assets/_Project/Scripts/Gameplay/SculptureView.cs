@@ -17,6 +17,7 @@ namespace CubeBlaster
         VoxelModel _model;
         VoxelCube[] _cubes;
         Vector3[] _localPos;
+        Vector3 _gridOrigin;
         float _cell;
         float _yaw;
         float _idle;
@@ -49,6 +50,7 @@ namespace CubeBlaster
                 min = Vector3.Min(min, g); max = Vector3.Max(max, g);
             }
             Vector3 gridCenter = (min + max) * 0.5f;
+            _gridOrigin = new Vector3(gridCenter.x, min.y, gridCenter.z);
 
             var lib = Visuals.Active;
             for (int i = 0; i < n; i++)
@@ -73,6 +75,10 @@ namespace CubeBlaster
 
             model.VoxelDestroyed += OnVoxelDestroyed;
         }
+
+        /// <summary>World point → fractional voxel-grid coords (accounts for live rotation).</summary>
+        public Vector3 WorldToGrid(Vector3 world) =>
+            transform.InverseTransformPoint(world) / _cell + _gridOrigin;
 
         /// <summary>Current world position of a voxel (accounts for live rotation).</summary>
         public Vector3 GetWorldPos(int index) =>
@@ -112,13 +118,36 @@ namespace CubeBlaster
             Vector3 dir = pos - transform.position;
             dir.y = Mathf.Abs(dir.y) + 0.5f;
             // Layered destruction (art doc): contact flash, big chunk (the cube itself), mid
-            // fragments for density, fast small slivers, particle burst + stretched shard streaks.
+            // fragments for density, fast small slivers, particle burst + stretched shard streaks,
+            // soft dust, a scale-punch ripple through neighbors and a subtle camera shake.
             Fx.Flash(pos, cube.Color);
-            Fx.Burst(pos, cube.Color);
-            Fx.Shards(pos, cube.Color);
+            Fx.Burst(pos, cube.Color, cfg.fxBurstCount);
+            Fx.Shards(pos, cube.Color, cfg.fxShardCount);
+            if (cfg.fxPuffCount > 0) Fx.Puff(pos, cube.Color, cfg.fxPuffCount);
             SpawnFragments(pos, cube.SharedMaterial, dir.normalized, cfg);
             cube.Explode(dir, cfg.debrisForce, cfg.debrisTorque, cfg.debrisLife);
             _cubes[index] = null;
+            PunchNeighbors(index, cfg);
+            if (cfg.shakeOnHit > 0f && CameraRig.Rig != null) CameraRig.Rig.Shake(cfg.shakeOnHit);
+        }
+
+        /// <summary>Impact ripple: cubes adjacent to the destroyed one briefly swell.</summary>
+        void PunchNeighbors(int index, GameConfig cfg)
+        {
+            if (cfg.hitPunchScale <= 0f) return;
+            Vector3 at = _localPos[index];
+            float maxDist = _cell * cfg.hitPunchRadius;
+            float sq = maxDist * maxDist;
+            for (int i = 0; i < _cubes.Length; i++)
+            {
+                var c = _cubes[i];
+                if (c == null) continue;
+                float d = (_localPos[i] - at).sqrMagnitude;
+                if (d > sq) continue;
+                // full punch right next door, fading with distance
+                float falloff = 1f - Mathf.Sqrt(d) / maxDist;
+                c.Punch(cfg.hitPunchScale * Mathf.Max(0.35f, falloff), cfg.hitPunchTime);
+            }
         }
 
         void SpawnFragments(Vector3 pos, Material mat, Vector3 outDir, GameConfig cfg)

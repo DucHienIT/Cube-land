@@ -14,11 +14,14 @@ namespace CubeBlaster
         /// <summary>The gameplay camera (scene-wired) — used instead of Camera.main lookups.</summary>
         public static Camera Main { get; private set; }
 
+        /// <summary>The rig itself (scene-wired) — lets views trigger Shake without a serialized ref.</summary>
+        public static CameraRig Rig { get; private set; }
+
         Camera _cam;
         Vector3 _basePos;
         float _shake;
 
-        void Awake() { _cam = cam; Main = cam; }
+        void Awake() { _cam = cam; Main = cam; Rig = this; }
 
         public void Fit(Bounds sculpture)
         {

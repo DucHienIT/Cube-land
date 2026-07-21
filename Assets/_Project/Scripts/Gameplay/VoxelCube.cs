@@ -18,6 +18,8 @@ namespace CubeBlaster
         [SerializeField] Rigidbody body;       // authored kinematic; freed on explode
 
         bool _exploded;
+        Vector3 _baseScale;
+        Coroutine _punch;
 
         public Color Color { get; private set; }
         /// <summary>Baked material asset this cube renders with (shared with its debris).</summary>
@@ -35,6 +37,7 @@ namespace CubeBlaster
             float sj = Cfg.Active.voxelScaleJitter;
             float wobble = 1f + ((((seed >> 3) % 5) + 5) % 5 - 2) * 0.5f * sj;
             transform.localScale = Vector3.one * size * wobble;
+            _baseScale = transform.localScale;
 
             if (meshRenderer == null) return;
             if (mat != null) meshRenderer.sharedMaterial = mat;
@@ -43,10 +46,33 @@ namespace CubeBlaster
             meshRenderer.SetPropertyBlock(mpb);
         }
 
+        /// <summary>Juice: brief scale swell when a neighboring cube is destroyed (impact ripple).</summary>
+        public void Punch(float amount, float time)
+        {
+            if (_exploded || amount <= 0f || time <= 0f) return;
+            if (_punch != null) StopCoroutine(_punch);
+            _punch = StartCoroutine(PunchRoutine(amount, time));
+        }
+
+        System.Collections.IEnumerator PunchRoutine(float amount, float time)
+        {
+            float t = 0f;
+            while (t < time && !_exploded)
+            {
+                t += Time.deltaTime;
+                float k = Mathf.Sin(Mathf.Clamp01(t / time) * Mathf.PI); // 0 → 1 → 0
+                transform.localScale = _baseScale * (1f + amount * k);
+                yield return null;
+            }
+            if (!_exploded) transform.localScale = _baseScale;
+            _punch = null;
+        }
+
         public void Explode(Vector3 dir, float force, float torque, float life)
         {
             if (_exploded) return;
             _exploded = true;
+            if (_punch != null) { StopCoroutine(_punch); _punch = null; transform.localScale = _baseScale; }
             transform.SetParent(null, true);
 
             if (box != null) box.enabled = true;

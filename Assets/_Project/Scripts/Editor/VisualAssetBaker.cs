@@ -80,6 +80,10 @@ namespace CubeBlaster.EditorTools
                 voxelSets.Add(new VisualLibrary.MaterialSet { colors = mats });
             }
 
+            // Base stays white: every gun renderer is tinted per-gun through a MaterialPropertyBlock,
+            // and an MPB SetColor REPLACES _BaseColor rather than multiplying it — so this value has
+            // no effect on the tinted parts and cannot be used to hold brightness headroom.
+            // That clamp lives in Gun.ApplyTint (see gunTintMaxValue).
             Material gunPart = BakeMaterial(MatDir + "/GunPart.mat", m => SetupToon(m, Color.white, null));
             Material gunHole = BakeMaterial(MatDir + "/GunHole.mat", m => SetupToon(m, new Color(0.10f, 0.10f, 0.14f), null));
             Material slotPad = BakeMaterial(MatDir + "/SlotPad.mat", m => SetupToon(m, new Color(0.122f, 0.18f, 0.294f), edgeTex));
@@ -220,8 +224,13 @@ namespace CubeBlaster.EditorTools
         {
             string path = MeshDir + "/RoundedCube.asset";
             var existing = AssetDatabase.LoadAssetAtPath<Mesh>(path);
-            if (existing != null && !_force) return existing;
 
+            // Always rebuilt, even on a default (non-force) bake. Unlike the materials and the
+            // PostFX profile there is nothing hand-editable about this mesh — it is pure geometry
+            // derived from voxelCornerRadius/voxelRoundSegments. Skipping it when the asset already
+            // existed meant those two config values silently did nothing on a default bake, and it
+            // would have kept serving the old inside-out mesh after the winding fix below.
+            // The existing asset is updated IN PLACE so its GUID (and every prefab reference) survives.
             Mesh built = BuildRoundedCube(
                 Mathf.Clamp(Cfg.Active.voxelCornerRadius, 0.02f, 0.49f),
                 Mathf.Max(2, Cfg.Active.voxelRoundSegments));
@@ -299,8 +308,16 @@ namespace CubeBlaster.EditorTools
                     {
                         int i0 = baseIdx + iy * n + ix;
                         int i1 = i0 + 1, i2 = i0 + n, i3 = i2 + 1;
-                        tris.Add(i0); tris.Add(i2); tris.Add(i1);
-                        tris.Add(i1); tris.Add(i2); tris.Add(i3);
+                        // Winding must put the FRONT face outward. Unity's rule (see the quad
+                        // example in the Mesh docs): the outward normal of a triangle (v0,v1,v2)
+                        // is Cross(v1-v0, v2-v0). Here i1 is +uA from i0 and i2 is +vA, and every
+                        // face below is built right-handed (uA x vA == nrm), so i0->i1->i2 gives
+                        // Cross(uA, vA) == nrm — outward. The old order (i0,i2,i1) produced
+                        // Cross(vA, uA) == -nrm, i.e. every face front-facing INWARD: with Cull
+                        // Back the near wall was culled and you saw the inside of the far walls,
+                        // so a close-up cube looked hollow/scooped.
+                        tris.Add(i0); tris.Add(i1); tris.Add(i2);
+                        tris.Add(i2); tris.Add(i1); tris.Add(i3);
                     }
             }
 
@@ -341,12 +358,18 @@ namespace CubeBlaster.EditorTools
             return AssetDatabase.LoadAssetAtPath<Texture2D>(path);
         }
 
-        /// <summary>Plastic face tile: soft off-center gaussian sheen blob over a gently darker
-        /// plate + a very light same-tone rim on the bevel band (NOT a dark outline).</summary>
+        /// <summary>Plastic face tile: soft off-center gaussian sheen blob over a darker plate +
+        /// a very light same-tone rim on the bevel band (NOT a dark outline).
+        /// The plate range is what stops a face reading as a flat slab: a toon ramp gives a flat
+        /// face a constant normal and therefore ONE flat tone, so without an in-face gradient the
+        /// three visible faces read as three planes taped together rather than one solid block.
+        /// plateLow was 0.90 (only 10% falloff — far too weak to fake light dropping off across a
+        /// face); 0.74 gives visible volume while staying smooth enough not to band.
+        /// Keep `rim` mild — a strong dark rim reads as a black pixel-grid, rejected twice.</summary>
         static Color32 EdgePixel(float u, float v)
         {
-            const float band = 0.08f, rim = 0.90f, plateLow = 0.90f;
-            const float hiU = 0.34f, hiV = 0.70f, hiSigma = 0.34f;
+            const float band = 0.10f, rim = 0.88f, plateLow = 0.74f;
+            const float hiU = 0.32f, hiV = 0.72f, hiSigma = 0.40f;
             float d = Mathf.Min(Mathf.Min(u, 1f - u), Mathf.Min(v, 1f - v));
             float du = u - hiU, dv = v - hiV;
             float hi = Mathf.Exp(-(du * du + dv * dv) / (2f * hiSigma * hiSigma));

@@ -45,12 +45,28 @@ namespace CubeBlaster
         void ApplyTint(Color color)
         {
             // Reference look: canister body in the gun's color; shoulders/tube lighter, trims darker.
-            Tint(bodyRenderer, color);
-            Tint(domeRenderer, Color.Lerp(color, Color.white, 0.16f));
-            Tint(tubeRenderer, Color.Lerp(color, Color.white, 0.42f));
+            // Every tint is capped: the tint goes through a MaterialPropertyBlock, which REPLACES
+            // _BaseColor instead of multiplying it, so GunPart.mat cannot hold brightness headroom
+            // for us. Without the cap the white color slot arrives at ~0.97 and the lighter
+            // dome/tube lerps push it to pure white — under the key light + high ambient floor that
+            // clipped to a featureless white blob with no visible form.
+            float cap = Cfg.Active.gunTintMaxValue;
+            Tint(bodyRenderer, CapValue(color, cap));
+            Tint(domeRenderer, CapValue(Color.Lerp(color, Color.white, 0.16f), cap));
+            Tint(tubeRenderer, CapValue(Color.Lerp(color, Color.white, 0.42f), cap));
             Color rim = Color.Lerp(color, Color.black, 0.32f);
             if (rimRenderers != null)
                 foreach (var r in rimRenderers) Tint(r, rim);
+        }
+
+        /// <summary>Scales a color down so its brightest channel is at most <paramref name="max"/>,
+        /// keeping hue and saturation intact (a plain Lerp toward black would wash the hue out).</summary>
+        static Color CapValue(Color c, float max)
+        {
+            float m = Mathf.Max(c.r, Mathf.Max(c.g, c.b));
+            if (m <= max || m <= 0.0001f) return c;
+            float k = max / m;
+            return new Color(c.r * k, c.g * k, c.b * k, c.a);
         }
 
         static void Tint(MeshRenderer r, Color c)
@@ -78,7 +94,7 @@ namespace CubeBlaster
             if (_timer > 0f) return;
 
             int target = _gm.RequestTarget(_colorIndex);
-            if (target < 0) return; // all remaining voxels of this color are reserved right now
+            if (target < 0) return; // every voxel of this color is reserved or hidden behind others
 
             _timer = Cfg.Active.gunFireInterval;
             Vector3 from = barrelTip != null ? barrelTip.position : transform.position;

@@ -17,7 +17,10 @@ namespace CubeBlaster
 
         readonly List<Cell> _cells = new List<Cell>();
         readonly Dictionary<int, int> _alivePerColor = new Dictionary<int, int>();
+        readonly Dictionary<(int x, int y, int z), int> _byPos =
+            new Dictionary<(int x, int y, int z), int>();
         int _aliveCount;
+        int _minX, _maxX, _minY, _maxY, _minZ, _maxZ;
 
         public int Count => _cells.Count;
         public int AliveCount => _aliveCount;
@@ -34,6 +37,8 @@ namespace CubeBlaster
 
         public VoxelModel(LevelData data)
         {
+            _minX = _minY = _minZ = int.MaxValue;
+            _maxX = _maxY = _maxZ = int.MinValue;
             if (data != null && data.voxels != null)
             {
                 for (int i = 0; i < data.voxels.Length; i++)
@@ -42,10 +47,22 @@ namespace CubeBlaster
                     _cells.Add(new Cell { x = v.x, y = v.y, z = v.z, c = v.c, alive = true });
                     _alivePerColor.TryGetValue(v.c, out int n);
                     _alivePerColor[v.c] = n + 1;
+                    _byPos[(v.x, v.y, v.z)] = i;
+                    if (v.x < _minX) _minX = v.x; if (v.x > _maxX) _maxX = v.x;
+                    if (v.y < _minY) _minY = v.y; if (v.y > _maxY) _maxY = v.y;
+                    if (v.z < _minZ) _minZ = v.z; if (v.z > _maxZ) _maxZ = v.z;
                 }
             }
             _aliveCount = _cells.Count;
         }
+
+        /// <summary>Index of the voxel occupying a grid cell (alive or not), or -1 if empty.</summary>
+        public int IndexAt(int x, int y, int z) =>
+            _byPos.TryGetValue((x, y, z), out int i) ? i : -1;
+
+        /// <summary>Whether the grid cell lies within the sculpture's bounding box.</summary>
+        public bool InBounds(int x, int y, int z) =>
+            x >= _minX && x <= _maxX && y >= _minY && y <= _maxY && z >= _minZ && z <= _maxZ;
 
         public Cell GetCell(int index) => _cells[index];
 

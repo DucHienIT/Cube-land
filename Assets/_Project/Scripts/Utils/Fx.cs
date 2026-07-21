@@ -75,6 +75,29 @@ namespace CubeBlaster
             }
         }
 
+        /// <summary>Soft slow dust puffs at a destroy point — reuses the burst system with big,
+        /// faded, desaturated particles so no extra ParticleSystem/prefab is needed.</summary>
+        public static void Puff(Vector3 pos, Color color, int count = 3)
+        {
+            var ps = BurstPS;
+            if (ps == null) return;
+            for (int i = 0; i < count; i++)
+            {
+                var ep = new ParticleSystem.EmitParams();
+                ep.position = pos + Random.insideUnitSphere * 0.12f;
+                Vector3 v = Random.onUnitSphere;
+                v.y = Mathf.Abs(v.y) * 0.5f + 0.2f;
+                ep.velocity = v.normalized * Random.Range(0.4f, 0.9f); // drifts, doesn't fly
+                Color c = Color.Lerp(color, new Color(0.92f, 0.93f, 0.98f), 0.75f); // chalky, near-white
+                c.a = Random.Range(0.18f, 0.30f);
+                ep.startColor = c;
+                ep.startSize = Random.Range(0.28f, 0.5f);
+                ep.startLifetime = Random.Range(0.35f, 0.55f);
+                ep.rotation = Random.Range(0f, 360f);
+                ps.Emit(ep, 1);
+            }
+        }
+
         /// <summary>Fast transparent shard streaks at a destruction point (sparkle + speed read).</summary>
         public static void Shards(Vector3 pos, Color color, int count = 4)
         {

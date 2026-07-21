@@ -130,8 +130,10 @@ namespace CubeBlaster
 
         /// <summary>
         /// Reserve a live, un-targeted voxel of the given color (top-biased) — guns are
-        /// color-locked and may only destroy voxels matching their own color.
-        /// Returns -1 if none available.
+        /// color-locked and may only destroy voxels matching their own color. Only voxels exposed
+        /// toward the camera are eligible, so guns never shoot through blocks covering their
+        /// target; hidden voxels wait until the shell in front of them is destroyed (or the
+        /// turntable spins them into view). Returns -1 if none available right now.
         /// </summary>
         public int RequestTarget(int color)
         {
@@ -143,12 +145,45 @@ namespace CubeBlaster
                 if (!_model.IsAlive(i) || _reserved.Contains(i)) continue;
                 var c = _model.GetCell(i);
                 if (c.c != color) continue;
+                if (!IsExposed(i)) continue;
                 // Prefer highest band; reservoir within the current best band for variety.
                 if (c.y > bestY) { bestY = c.y; best = i; seen = 1; }
                 else if (c.y == bestY) { seen++; if (Random.value < 1f / seen) best = i; }
             }
             if (best >= 0) _reserved.Add(best);
             return best;
+        }
+
+        /// <summary>
+        /// True when no other live voxel sits between this voxel and the camera — i.e. the player
+        /// can see (some of) its front face. Marched in sculpture grid space so it accounts for
+        /// the turntable's current rotation. Darts approach along this same camera ray (see Dart),
+        /// which is what keeps them from punching through other blocks.
+        /// </summary>
+        bool IsExposed(int index)
+        {
+            var cam = CameraRig.Main;
+            if (cam == null) return true;
+
+            var cell = _model.GetCell(index);
+            Vector3 target = new Vector3(cell.x, cell.y, cell.z);
+            Vector3 dir = sculpture.WorldToGrid(cam.transform.position) - target;
+            float dist = dir.magnitude;
+            if (dist <= 1f) return true;
+            dir /= dist;
+
+            const float step = 0.25f;
+            for (float t = 0.55f; t < dist; t += step)
+            {
+                Vector3 p = target + dir * t;
+                int x = Mathf.RoundToInt(p.x), y = Mathf.RoundToInt(p.y), z = Mathf.RoundToInt(p.z);
+                if (x == cell.x && y == cell.y && z == cell.z) continue;
+                // The bounding box is convex — once the ray leaves it nothing further can block.
+                if (!_model.InBounds(x, y, z)) return true;
+                int other = _model.IndexAt(x, y, z);
+                if (other >= 0 && other != index && _model.IsAlive(other)) return false;
+            }
+            return true;
         }
 
         /// <summary>Live voxels left of a color — a gun retires once its color hits zero.</summary>
