@@ -9,15 +9,7 @@ using UnityEngine.Rendering.Universal;
 
 namespace CubeBlaster.EditorTools
 {
-    /// <summary>
-    /// One-shot baker that turns every formerly-procedural visual (meshes, textures, materials,
-    /// particle systems, gun/dart/bank visual subtrees, post-processing profile) into real assets
-    /// and fully-authored prefabs, wired into the VisualLibrary.
-    ///
-    /// "Bake Visual Assets" is non-destructive for hand-edits: existing .mat/.png/mesh assets are
-    /// kept as-is (only missing ones are created); prefab subtrees ARE rebuilt each run.
-    /// "Force Rebake All" recreates everything from the procedural defaults.
-    /// </summary>
+
     public static class VisualAssetBaker
     {
         const string ArtDir = "Assets/_Project/Art";
@@ -31,6 +23,13 @@ namespace CubeBlaster.EditorTools
         const string PostProfilePath = ArtDir + "/PostFX.asset";
         const string ScenePath = "Assets/_Project/Scenes/Game.unity";
         const string FontPath = "Assets/TextMesh Pro/Resources/Fonts & Materials/LiberationSans SDF.asset";
+
+        const float LabelFaceDilate = 0.02f;
+        const float LabelOutlineWidth = 0.12f;
+        static readonly Color LabelOutlineColor = new Color(0.075f, 0.098f, 0.184f, 1f);
+        static readonly Color LabelShadowColor = new Color(0.055f, 0.075f, 0.145f, 0.55f);
+        static readonly Vector2 BankLabelFit = new Vector2(0.72f, 0.72f);
+        const float BankLabelSize = 0.105f;
 
         static bool _force;
 
@@ -52,6 +51,70 @@ namespace CubeBlaster.EditorTools
             Run();
         }
 
+        [MenuItem("Tools/Cube Blaster/Rebake Voxel Surface")]
+        public static void RebakeVoxelSurface()
+        {
+            if (EditorApplication.isPlayingOrWillChangePlaymode)
+            {
+                Debug.LogWarning("[VisualAssetBaker] Cannot rebake voxel surfaces during play mode.");
+                return;
+            }
+
+            EnsureFolders();
+            bool previousForce = _force;
+            try
+            {
+                _force = true;
+                Texture2D edgeTex = BakeTexture(TexDir + "/EdgeSheen.png", 128, EdgePixel, mipmaps: true);
+                int materialCount = 0;
+                for (int set = 0; set < 4; set++)
+                {
+                    var colors = PaletteConfig.Active.GetVoxelSet(set);
+                    for (int slot = 0; slot < colors.Length; slot++)
+                    {
+                        Color voxelColor = colors[slot];
+                        BakeMaterial(string.Format("{0}/Voxel_S{1}_C{2}.mat", VoxelMatDir, set, slot),
+                            m => SetupVoxelToon(m, voxelColor, edgeTex));
+                        materialCount++;
+                    }
+                }
+
+                AssetDatabase.SaveAssets();
+                Debug.Log(string.Format("[VisualAssetBaker] Rebuilt soft voxel surface: EdgeSheen + {0} materials.", materialCount));
+            }
+            finally
+            {
+                _force = previousForce;
+            }
+        }
+
+        [MenuItem("Tools/Cube Blaster/Sync SSAO From Config")]
+        public static void SyncSsao()
+        {
+            const string rendererPath = "Assets/Settings/UniversalRenderer.asset";
+            var cfg = GameConfig.Active;
+            int touched = 0;
+            foreach (var sub in AssetDatabase.LoadAllAssetsAtPath(rendererPath))
+            {
+                if (sub == null || sub.GetType().Name != "ScreenSpaceAmbientOcclusion") continue;
+                var so = new SerializedObject(sub);
+                var s = so.FindProperty("m_Settings");
+                if (s == null) continue;
+                var pi = s.FindPropertyRelative("Intensity"); if (pi != null) pi.floatValue = cfg.aoIntensity;
+                var pr = s.FindPropertyRelative("Radius"); if (pr != null) pr.floatValue = cfg.aoRadius;
+                var pd = s.FindPropertyRelative("DirectLightingStrength"); if (pd != null) pd.floatValue = cfg.aoDirectStrength;
+                var pa = s.FindPropertyRelative("AfterOpaque"); if (pa != null) pa.intValue = 1;
+                so.ApplyModifiedPropertiesWithoutUndo();
+                EditorUtility.SetDirty(sub);
+                touched++;
+            }
+            AssetDatabase.SaveAssets();
+            Debug.Log(touched > 0
+                ? string.Format("[VisualAssetBaker] SSAO synced: intensity={0} radius={1} direct={2}",
+                    cfg.aoIntensity, cfg.aoRadius, cfg.aoDirectStrength)
+                : "[VisualAssetBaker] No ScreenSpaceAmbientOcclusion feature found on " + rendererPath);
+        }
+
         static void Run()
         {
             if (EditorApplication.isPlayingOrWillChangePlaymode)
@@ -61,32 +124,68 @@ namespace CubeBlaster.EditorTools
             }
             EnsureFolders();
 
-            // ---- 1. mesh + textures ----
             Mesh rounded = BakeRoundedCubeMesh();
+            Mesh gunBody = BakeGunBodyMesh();
+            Mesh gunPuck = BakePuckMesh();
             Texture2D edgeTex = BakeTexture(TexDir + "/EdgeSheen.png", 128, EdgePixel, mipmaps: true);
-            Texture2D squareTex = BakeTexture(TexDir + "/FxSquare.png", 32, SquarePixel, mipmaps: false);
-            Texture2D discTex = BakeTexture(TexDir + "/FxDisc.png", 32, DiscPixel, mipmaps: false);
-            Texture2D ringTex = BakeTexture(TexDir + "/FxRing.png", 64, RingPixel, mipmaps: false);
 
-            // ---- 2. materials ----
+            _bgBase = PaletteConfig.Active.background;
+            _bgStrength = GameConfig.Active.bgGradientStrength;
+            _bgRadius = GameConfig.Active.bgGradientRadius;
+            _bgTint = GameConfig.Active.bgGradientTint;
+            Texture2D bgTex = BakeTexture(TexDir + "/BgGradient.png", 256, BgPixel, mipmaps: false);
+            if (bgTex != null)
+            {
+
+                var bgImp = (TextureImporter)AssetImporter.GetAtPath(TexDir + "/BgGradient.png");
+                if (bgImp != null && bgImp.textureCompression != TextureImporterCompression.Uncompressed)
+                {
+                    bgImp.textureCompression = TextureImporterCompression.Uncompressed;
+                    bgImp.wrapMode = TextureWrapMode.Clamp;
+                    bgImp.SaveAndReimport();
+                    bgTex = AssetDatabase.LoadAssetAtPath<Texture2D>(TexDir + "/BgGradient.png");
+                }
+            }
+            Texture2D ringTex = BakeTexture(TexDir + "/FxRing.png", 64, RingPixel, mipmaps: true,
+                alwaysRebuild: true);
+
             var voxelSets = new List<VisualLibrary.MaterialSet>();
             for (int set = 0; set < 4; set++)
             {
-                var pal = Palette.Active.VoxelSet(set);
+                var pal = PaletteConfig.Active.GetVoxelSet(set);
                 var mats = new Material[pal.Length];
                 for (int slot = 0; slot < pal.Length; slot++)
                     mats[slot] = BakeMaterial(string.Format("{0}/Voxel_S{1}_C{2}.mat", VoxelMatDir, set, slot),
-                        m => SetupToon(m, pal[slot], edgeTex));
+                        m => SetupVoxelToon(m, pal[slot], edgeTex));
                 voxelSets.Add(new VisualLibrary.MaterialSet { colors = mats });
             }
 
-            // Base stays white: every gun renderer is tinted per-gun through a MaterialPropertyBlock,
-            // and an MPB SetColor REPLACES _BaseColor rather than multiplying it — so this value has
-            // no effect on the tinted parts and cannot be used to hold brightness headroom.
-            // That clamp lives in Gun.ApplyTint (see gunTintMaxValue).
             Material gunPart = BakeMaterial(MatDir + "/GunPart.mat", m => SetupToon(m, Color.white, null));
-            Material gunHole = BakeMaterial(MatDir + "/GunHole.mat", m => SetupToon(m, new Color(0.10f, 0.10f, 0.14f), null));
-            Material slotPad = BakeMaterial(MatDir + "/SlotPad.mat", m => SetupToon(m, new Color(0.122f, 0.18f, 0.294f), edgeTex));
+            Material gunHole = BakeMaterial(MatDir + "/GunHole.mat", m =>
+            {
+                SetupToon(m, new Color(0.05f, 0.06f, 0.10f), null);
+                SetupCoolDarkToon(m,
+                    new Color(0.05f, 0.08f, 0.16f),
+                    new Color(0.02f, 0.03f, 0.06f),
+                    new Color(0.04f, 0.06f, 0.10f));
+            });
+            Material slotPad = BakeMaterial(MatDir + "/SlotPad.mat", m =>
+            {
+                SetupToon(m, new Color(0.122f, 0.18f, 0.294f), edgeTex);
+                SetupCoolDarkToon(m,
+                    new Color(0.22f, 0.32f, 0.52f),
+                    new Color(0.08f, 0.12f, 0.22f),
+                    new Color(0.16f, 0.22f, 0.38f));
+            });
+
+            Material backdrop = BakeMaterial(MatDir + "/Backdrop.mat", m =>
+            {
+                m.shader = Shader.Find("Universal Render Pipeline/Unlit");
+                SetBaseColor(m, Color.white);
+                if (bgTex != null) { m.mainTexture = bgTex; m.SetTexture("_BaseMap", bgTex); }
+                m.SetFloat("_ZWrite", 0f);
+                m.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Background;
+            });
             Material dartBullet = BakeMaterial(MatDir + "/DartBullet.mat", m =>
             {
                 m.shader = Shader.Find("Universal Render Pipeline/Unlit");
@@ -94,17 +193,7 @@ namespace CubeBlaster.EditorTools
             });
             Material dartTrail = BakeMaterial(MatDir + "/DartTrail.mat", m =>
             {
-                m.shader = Shader.Find("Sprites/Default"); // honors the trail's vertex colors
-            });
-            Material fxSquare = BakeMaterial(MatDir + "/FxSquare.mat", m =>
-            {
                 m.shader = Shader.Find("Sprites/Default");
-                m.mainTexture = squareTex;
-            });
-            Material fxDisc = BakeMaterial(MatDir + "/FxDisc.mat", m =>
-            {
-                m.shader = Shader.Find("Sprites/Default");
-                m.mainTexture = discTex;
             });
             Material fxRing = BakeMaterial(MatDir + "/FxRing.mat", m =>
             {
@@ -113,67 +202,18 @@ namespace CubeBlaster.EditorTools
             });
             Material labelMat = BakeLabelMaterial();
 
-            // ---- 3. FX + debris prefabs ----
-            ParticleSystem fxBurstP = BakeFxPrefab(FxPrefabDir + "/Fx_Burst.prefab", fxSquare, ps =>
-            {
-                var main = ps.main;
-                main.startLifetime = 0.45f;
-                main.gravityModifier = 1.6f;
-                main.maxParticles = 1024;
-                SetFade(ps, 1f, 0.55f);
-                var sz = ps.sizeOverLifetime;
-                sz.enabled = true;
-                sz.size = new ParticleSystem.MinMaxCurve(1f, AnimationCurve.EaseInOut(0f, 1f, 1f, 0.25f));
-            });
-            ParticleSystem fxShardsP = BakeFxPrefab(FxPrefabDir + "/Fx_Shards.prefab", fxSquare, ps =>
-            {
-                var main = ps.main;
-                main.startLifetime = 0.28f;
-                main.gravityModifier = 0.7f;
-                main.maxParticles = 512;
-                SetFade(ps, 0.6f, 0f);
-                var r = ps.GetComponent<ParticleSystemRenderer>();
-                r.renderMode = ParticleSystemRenderMode.Stretch;
-                r.lengthScale = 5f;      // thin straight streaks along the velocity
-                r.velocityScale = 0.06f;
-            });
-            ParticleSystem fxFlashP = BakeFxPrefab(FxPrefabDir + "/Fx_Flash.prefab", fxDisc, ps =>
-            {
-                var main = ps.main;
-                main.startLifetime = 0.1f;
-                main.gravityModifier = 0f;
-                main.maxParticles = 128;
-                SetFade(ps, 0.9f, 0f);
-                var sz = ps.sizeOverLifetime;
-                sz.enabled = true;
-                sz.size = new ParticleSystem.MinMaxCurve(1f, AnimationCurve.EaseInOut(0f, 0.7f, 1f, 1.25f));
-            });
-            ParticleSystem fxRingP = BakeFxPrefab(FxPrefabDir + "/Fx_Ring.prefab", fxRing, ps =>
-            {
-                var main = ps.main;
-                main.startLifetime = 0.2f;
-                main.gravityModifier = 0f;
-                main.maxParticles = 64;
-                SetFade(ps, 0.65f, 0f);
-                var sz = ps.sizeOverLifetime;
-                sz.enabled = true;
-                sz.size = new ParticleSystem.MinMaxCurve(1f, AnimationCurve.EaseInOut(0f, 0.3f, 1f, 1f));
-            });
-
-            Debris debris = BakeDebrisPrefab(rounded, voxelSets[0].colors[0]);
-
-            // ---- 4. gameplay prefabs (visual subtrees authored in) ----
             Mesh sphere = Resources.GetBuiltinResource<Mesh>("New-Sphere.fbx");
-            Mesh cylinder = Resources.GetBuiltinResource<Mesh>("New-Cylinder.fbx");
+            Mesh quad = Resources.GetBuiltinResource<Mesh>("Quad.fbx");
             TMP_FontAsset font = AssetDatabase.LoadAssetAtPath<TMP_FontAsset>(FontPath);
+
+            Shockwave shockwave = BakeShockwavePrefab(quad, fxRing);
 
             BakeVoxelCubePrefab(rounded, voxelSets[0].colors[0]);
             BakeDartPrefab(sphere, dartBullet, dartTrail);
-            BakeGunPrefab(rounded, sphere, cylinder, gunPart, gunHole, font, labelMat);
-            BakeGunSlotPrefab(rounded, slotPad);
+            BakeGunPrefab(rounded, gunBody, gunPuck, gunPart, gunHole, font, labelMat);
+            BakeGunSlotPrefab(rounded, slotPad, gunHole);
             BakeBankBlockPrefab(rounded, voxelSets[0].colors[0], font, labelMat);
 
-            // ---- 5. VisualLibrary ----
             var lib = AssetDatabase.LoadAssetAtPath<VisualLibrary>(LibraryPath);
             if (lib == null)
             {
@@ -181,17 +221,13 @@ namespace CubeBlaster.EditorTools
                 AssetDatabase.CreateAsset(lib, LibraryPath);
             }
             lib.voxelSets = voxelSets.ToArray();
+            lib.backdrop = backdrop;
             lib.slotPad = slotPad;
             lib.dartBullet = dartBullet;
             lib.dartTrail = dartTrail;
-            lib.fxBurst = fxBurstP;
-            lib.fxShards = fxShardsP;
-            lib.fxFlash = fxFlashP;
-            lib.fxRing = fxRingP;
-            lib.debrisPrefab = debris;
+            lib.shockwavePrefab = shockwave;
             EditorUtility.SetDirty(lib);
 
-            // ---- 6. post-processing profile + scene volume + bootstrap wiring ----
             BakePostFx(lib);
 
             AssetDatabase.SaveAssets();
@@ -199,8 +235,6 @@ namespace CubeBlaster.EditorTools
             Debug.Log("[VisualAssetBaker] Bake complete. All visuals are now assets/prefabs — tweak them in " +
                       ArtDir + ", " + PrefabDir + " and " + LibraryPath);
         }
-
-        // ================= folders =================
 
         static void EnsureFolders()
         {
@@ -218,22 +252,112 @@ namespace CubeBlaster.EditorTools
                 AssetDatabase.CreateFolder(parent, child);
         }
 
-        // ================= mesh =================
-
         static Mesh BakeRoundedCubeMesh()
         {
-            string path = MeshDir + "/RoundedCube.asset";
-            var existing = AssetDatabase.LoadAssetAtPath<Mesh>(path);
 
-            // Always rebuilt, even on a default (non-force) bake. Unlike the materials and the
-            // PostFX profile there is nothing hand-editable about this mesh — it is pure geometry
-            // derived from voxelCornerRadius/voxelRoundSegments. Skipping it when the asset already
-            // existed meant those two config values silently did nothing on a default bake, and it
-            // would have kept serving the old inside-out mesh after the winding fix below.
-            // The existing asset is updated IN PLACE so its GUID (and every prefab reference) survives.
-            Mesh built = BuildRoundedCube(
-                Mathf.Clamp(Cfg.Active.voxelCornerRadius, 0.02f, 0.49f),
-                Mathf.Max(2, Cfg.Active.voxelRoundSegments));
+            const int maxSegmentsUnderBudget = 3;
+            int segments = Mathf.Clamp(GameConfig.Active.voxelRoundSegments, 2, maxSegmentsUnderBudget);
+            Mesh mesh = BakeRoundedMesh(MeshDir + "/RoundedCube.asset",
+                GameConfig.Active.voxelCornerRadius, segments);
+            int triangleCount = (int)(mesh.GetIndexCount(0) / 3);
+            if (triangleCount >= 750)
+                Debug.LogError("[VisualAssetBaker] RoundedCube exceeded its strict <750 triangle budget: " + triangleCount);
+            return mesh;
+        }
+
+        static Mesh BakeGunBodyMesh()
+        {
+            return BakeRoundedMesh(MeshDir + "/GunBody.asset",
+                GameConfig.Active.gunBodyRadius, GameConfig.Active.gunBodySegments);
+        }
+
+        static Mesh BakePuckMesh()
+        {
+            string path = MeshDir + "/GunPuck.asset";
+            Mesh built = BuildPuck(GameConfig.Active.gunPuckRim, GameConfig.Active.gunPuckSides);
+            return StoreMesh(path, built);
+        }
+
+        static Mesh BuildPuck(float rim, int sides)
+        {
+            rim = Mathf.Clamp(rim, 0.02f, 0.49f);
+            sides = Mathf.Max(6, sides);
+            int arc = Mathf.Max(2, Mathf.RoundToInt(sides * 0.2f));
+            float flat = 0.5f - rim;
+
+            var prof = new List<Vector4>();
+            prof.Add(new Vector4(0f, -0.5f, 0f, -1f));
+            prof.Add(new Vector4(flat, -0.5f, 0f, -1f));
+            for (int i = 1; i <= arc; i++)
+            {
+                float a = Mathf.PI * 0.5f * (1f - (float)i / arc);
+                prof.Add(new Vector4(flat + rim * Mathf.Cos(a), -flat - rim * Mathf.Sin(a),
+                                     Mathf.Cos(a), -Mathf.Sin(a)));
+            }
+            prof.Add(new Vector4(0.5f, flat, 1f, 0f));
+            for (int i = 1; i <= arc; i++)
+            {
+                float a = Mathf.PI * 0.5f * ((float)i / arc);
+                prof.Add(new Vector4(flat + rim * Mathf.Cos(a), flat + rim * Mathf.Sin(a),
+                                     Mathf.Cos(a), Mathf.Sin(a)));
+            }
+            prof.Add(new Vector4(0f, 0.5f, 0f, 1f));
+
+            var verts = new List<Vector3>();
+            var norms = new List<Vector3>();
+            var uvs = new List<Vector2>();
+            var tris = new List<int>();
+
+            for (int j = 0; j < prof.Count; j++)
+            {
+                Vector4 p = prof[j];
+                float v = (float)j / (prof.Count - 1);
+                for (int i = 0; i <= sides; i++)
+                {
+                    float t = (float)i / sides;
+                    float th = t * Mathf.PI * 2f;
+                    float c = Mathf.Cos(th), s = Mathf.Sin(th);
+                    verts.Add(new Vector3(p.x * c, p.y, p.x * s));
+                    norms.Add(new Vector3(p.z * c, p.w, p.z * s).normalized);
+                    uvs.Add(new Vector2(t, v));
+                }
+            }
+
+            int stride = sides + 1;
+            for (int j = 0; j < prof.Count - 1; j++)
+            {
+                bool lowDegenerate = prof[j].x <= 1e-5f;
+                bool highDegenerate = prof[j + 1].x <= 1e-5f;
+                for (int i = 0; i < sides; i++)
+                {
+                    int a = j * stride + i, b = a + 1;
+                    int c = a + stride, d = c + 1;
+
+                    if (!lowDegenerate) { tris.Add(a); tris.Add(c); tris.Add(b); }
+                    if (!highDegenerate) { tris.Add(b); tris.Add(c); tris.Add(d); }
+                }
+            }
+
+            var mesh = new Mesh { name = "GunPuck" };
+            mesh.SetVertices(verts);
+            mesh.SetNormals(norms);
+            mesh.SetUVs(0, uvs);
+            mesh.SetTriangles(tris, 0);
+            mesh.RecalculateBounds();
+            return mesh;
+        }
+
+        static Mesh BakeRoundedMesh(string path, float radius, int segments)
+        {
+
+            return StoreMesh(path, BuildRoundedCube(
+                Mathf.Clamp(radius, 0.02f, 0.49f),
+                Mathf.Max(2, segments)));
+        }
+
+        static Mesh StoreMesh(string path, Mesh built)
+        {
+            var existing = AssetDatabase.LoadAssetAtPath<Mesh>(path);
             if (existing != null)
             {
                 existing.Clear();
@@ -251,19 +375,13 @@ namespace CubeBlaster.EditorTools
             return built;
         }
 
-        /// <summary>
-        /// A unit cube (1×1×1, centered) with rounded/beveled edges + corners. Clamp-and-push
-        /// mapping: each cube-surface point is clamped to the inner flat box and pushed out by the
-        /// corner radius, so flat faces stay flat and edges/corners round off. Per-face planar UVs
-        /// so the EdgeSheen rim lands exactly on the bevel band.
-        /// </summary>
         static Mesh BuildRoundedCube(float r, int band)
         {
             float flat = 0.5f - r;
 
             var raw = new List<float>();
             for (int i = 0; i <= band; i++) raw.Add(-0.5f + r * ((float)i / band));
-            raw.Add(0f);
+
             for (int i = 0; i <= band; i++) raw.Add(flat + r * ((float)i / band));
             raw.Sort();
             var s = new List<float>();
@@ -308,14 +426,7 @@ namespace CubeBlaster.EditorTools
                     {
                         int i0 = baseIdx + iy * n + ix;
                         int i1 = i0 + 1, i2 = i0 + n, i3 = i2 + 1;
-                        // Winding must put the FRONT face outward. Unity's rule (see the quad
-                        // example in the Mesh docs): the outward normal of a triangle (v0,v1,v2)
-                        // is Cross(v1-v0, v2-v0). Here i1 is +uA from i0 and i2 is +vA, and every
-                        // face below is built right-handed (uA x vA == nrm), so i0->i1->i2 gives
-                        // Cross(uA, vA) == nrm — outward. The old order (i0,i2,i1) produced
-                        // Cross(vA, uA) == -nrm, i.e. every face front-facing INWARD: with Cull
-                        // Back the near wall was culled and you saw the inside of the far walls,
-                        // so a close-up cube looked hollow/scooped.
+
                         tris.Add(i0); tris.Add(i1); tris.Add(i2);
                         tris.Add(i2); tris.Add(i1); tris.Add(i3);
                     }
@@ -331,81 +442,89 @@ namespace CubeBlaster.EditorTools
             return m;
         }
 
-        // ================= textures =================
-
         delegate Color32 PixelFn(float u, float v);
 
-        static Texture2D BakeTexture(string path, int size, PixelFn fn, bool mipmaps)
+        static Texture2D BakeTexture(string path, int size, PixelFn fn, bool mipmaps,
+            bool alwaysRebuild = false)
         {
             var existing = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
-            if (existing != null && !_force) return existing;
-
-            var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
-            var px = new Color32[size * size];
-            for (int y = 0; y < size; y++)
-                for (int x = 0; x < size; x++)
-                    px[y * size + x] = fn((x + 0.5f) / size, (y + 0.5f) / size);
-            tex.SetPixels32(px);
-            File.WriteAllBytes(path, tex.EncodeToPNG());
-            Object.DestroyImmediate(tex);
-            AssetDatabase.ImportAsset(path);
+            if (existing == null || _force || alwaysRebuild)
+            {
+                var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+                var px = new Color32[size * size];
+                for (int y = 0; y < size; y++)
+                    for (int x = 0; x < size; x++)
+                        px[y * size + x] = fn((x + 0.5f) / size, (y + 0.5f) / size);
+                tex.SetPixels32(px);
+                File.WriteAllBytes(path, tex.EncodeToPNG());
+                Object.DestroyImmediate(tex);
+                AssetDatabase.ImportAsset(path);
+            }
 
             var imp = (TextureImporter)AssetImporter.GetAtPath(path);
+            if (imp == null) return AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+
+            bool uncompressed = path == TexDir + "/EdgeSheen.png";
+            if (imp.wrapMode == TextureWrapMode.Clamp
+                && imp.filterMode == FilterMode.Bilinear
+                && imp.mipmapEnabled == mipmaps
+                && imp.alphaIsTransparency
+                && (!uncompressed || imp.textureCompression == TextureImporterCompression.Uncompressed))
+                return AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+
             imp.wrapMode = TextureWrapMode.Clamp;
+            imp.filterMode = FilterMode.Bilinear;
             imp.mipmapEnabled = mipmaps;
             imp.alphaIsTransparency = true;
+            if (uncompressed) imp.textureCompression = TextureImporterCompression.Uncompressed;
             imp.SaveAndReimport();
             return AssetDatabase.LoadAssetAtPath<Texture2D>(path);
         }
 
-        /// <summary>Plastic face tile: soft off-center gaussian sheen blob over a darker plate +
-        /// a very light same-tone rim on the bevel band (NOT a dark outline).
-        /// The plate range is what stops a face reading as a flat slab: a toon ramp gives a flat
-        /// face a constant normal and therefore ONE flat tone, so without an in-face gradient the
-        /// three visible faces read as three planes taped together rather than one solid block.
-        /// plateLow was 0.90 (only 10% falloff — far too weak to fake light dropping off across a
-        /// face); 0.74 gives visible volume while staying smooth enough not to band.
-        /// Keep `rim` mild — a strong dark rim reads as a black pixel-grid, rejected twice.</summary>
         static Color32 EdgePixel(float u, float v)
         {
-            const float band = 0.10f, rim = 0.88f, plateLow = 0.74f;
-            const float hiU = 0.32f, hiV = 0.72f, hiSigma = 0.40f;
-            float d = Mathf.Min(Mathf.Min(u, 1f - u), Mathf.Min(v, 1f - v));
-            float du = u - hiU, dv = v - hiV;
-            float hi = Mathf.Exp(-(du * du + dv * dv) / (2f * hiSigma * hiSigma));
-            float plate = Mathf.Lerp(plateLow, 1f, hi);
-            float edge = Mathf.SmoothStep(rim, 1f, Mathf.Clamp01(d / band));
-            byte g = (byte)Mathf.RoundToInt(Mathf.Clamp01(plate * edge) * 255f);
+            const float plateLow = 0.90f, plateHigh = 0.98f, sigma = 0.42f;
+            float du = u - 0.5f, dv = v - 0.5f;
+            float lift = Mathf.Exp(-(du * du + dv * dv) / (2f * sigma * sigma));
+            float value = Mathf.Lerp(plateLow, plateHigh, lift);
+            byte g = (byte)Mathf.RoundToInt(Mathf.Clamp01(value) * 255f);
             return new Color32(g, g, g, 255);
         }
 
-        /// <summary>Crisp rounded-square sprite — debris dust stays on-language with the voxels.</summary>
-        static Color32 SquarePixel(float u, float v)
+        static Color32 BgPixel(float u, float v)
         {
-            float d = Mathf.Min(Mathf.Min(u, 1f - u), Mathf.Min(v, 1f - v));
-            float a = Mathf.SmoothStep(0.04f, 0.16f, d);
-            return new Color32(255, 255, 255, (byte)(a * 255f));
+            float du = (u - 0.5f), dv = (v - 0.5f);
+            float dist = Mathf.Sqrt(du * du + dv * dv) / Mathf.Max(0.05f, _bgRadius);
+
+            float t = Mathf.Clamp01(1f - dist);
+            t = t * t * t * (t * (t * 6f - 15f) + 10f);
+
+            Color baseCol = _bgBase;
+            float lift = 1f + _bgStrength * t;
+            Color c = new Color(baseCol.r * lift, baseCol.g * lift, baseCol.b * lift, 1f);
+
+            if (_bgTint > 0f)
+            {
+                Color rich = new Color(baseCol.r * 0.72f, baseCol.g * 0.94f, Mathf.Min(1f, baseCol.b * 1.22f), 1f);
+                c = Color.Lerp(c, rich, _bgTint * t);
+            }
+            return new Color32(
+                (byte)Mathf.RoundToInt(Mathf.Clamp01(c.r) * 255f),
+                (byte)Mathf.RoundToInt(Mathf.Clamp01(c.g) * 255f),
+                (byte)Mathf.RoundToInt(Mathf.Clamp01(c.b) * 255f), 255);
         }
 
-        static Color32 DiscPixel(float u, float v)
-        {
-            float dx = u - 0.5f, dy = v - 0.5f;
-            float d = Mathf.Sqrt(dx * dx + dy * dy) * 2f;
-            float a = Mathf.Clamp01(1f - Mathf.SmoothStep(0.7f, 1f, d));
-            return new Color32(255, 255, 255, (byte)(a * 255f));
-        }
+        static float _bgStrength, _bgRadius, _bgTint;
+        static Color _bgBase = new Color(0.149f, 0.231f, 0.396f);
 
-        /// <summary>Thin ring sprite for the impact shockwave.</summary>
         static Color32 RingPixel(float u, float v)
         {
             float dx = u - 0.5f, dy = v - 0.5f;
             float d = Mathf.Sqrt(dx * dx + dy * dy) * 2f;
-            float a = Mathf.Clamp01(1f - Mathf.Abs(d - 0.82f) / 0.14f);
-            a *= a;
+            float band = Mathf.Clamp01(1f - Mathf.Abs(d - 0.70f) / 0.26f);
+            float a = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(band * 1.35f));
             return new Color32(255, 255, 255, (byte)(a * 255f));
         }
-
-        // ================= materials =================
 
         static Material BakeMaterial(string path, System.Action<Material> setup)
         {
@@ -423,11 +542,6 @@ namespace CubeBlaster.EditorTools
             return mat;
         }
 
-        /// <summary>
-        /// Shared TCP2 Hybrid setup (all knobs seeded from GameConfig): hue-tinted shadow color
-        /// (never black), soft wide ramp (no hard cel bands), broad soft stylized specular — the
-        /// "premium plastic toy" response the art reviews asked for.
-        /// </summary>
         static void SetupToon(Material mat, Color color, Texture2D tex)
         {
             var shader = Shader.Find("Toony Colors Pro 2/Hybrid Shader");
@@ -439,14 +553,13 @@ namespace CubeBlaster.EditorTools
                 mat.mainTexture = tex;
             }
 
-            var cfg = Cfg.Active;
+            var cfg = GameConfig.Active;
             if (mat.HasProperty("_HColor")) mat.SetColor("_HColor", cfg.toonHighlight);
             if (mat.HasProperty("_SColor")) mat.SetColor("_SColor", cfg.toonShadow);
             if (mat.HasProperty("_RampThreshold")) mat.SetFloat("_RampThreshold", cfg.toonRampThreshold);
             if (mat.HasProperty("_RampSmoothing")) mat.SetFloat("_RampSmoothing", cfg.toonRampSmoothing);
             mat.EnableKeyword("TCP2_SHADOW_LIGHT_COLOR");
 
-            // Stylized specular: broad + soft (toy gloss, not a tight glint)
             mat.EnableKeyword("TCP2_SPECULAR");
             mat.EnableKeyword("TCP2_SPECULAR_STYLIZED");
             if (mat.HasProperty("_UseSpecular")) mat.SetFloat("_UseSpecular", 1f);
@@ -456,6 +569,41 @@ namespace CubeBlaster.EditorTools
             if (mat.HasProperty("_SpecularToonSmoothness")) mat.SetFloat("_SpecularToonSmoothness", cfg.toonSpecSmoothing);
         }
 
+        static void SetupVoxelToon(Material mat, Color color, Texture2D tex)
+        {
+            SetupToon(mat, color, tex);
+
+            var cfg = GameConfig.Active;
+            Color voxelHighlight = Color.Lerp(cfg.toonShadow, cfg.toonHighlight,
+                cfg.voxelHighlightStrength);
+            voxelHighlight.a = 1f;
+            if (mat.HasProperty("_HColor")) mat.SetColor("_HColor", voxelHighlight);
+            if (mat.HasProperty("_RampSmoothing"))
+                mat.SetFloat("_RampSmoothing", cfg.voxelLightRampSmoothing);
+
+            if (mat.HasProperty("_UseSpecular")) mat.SetFloat("_UseSpecular", 0f);
+            if (mat.HasProperty("_SpecularType")) mat.SetFloat("_SpecularType", 0f);
+            if (mat.HasProperty("_UseRim")) mat.SetFloat("_UseRim", 0f);
+            if (mat.HasProperty("_UseRimLightMask")) mat.SetFloat("_UseRimLightMask", 0f);
+            if (mat.HasProperty("_UseReflections")) mat.SetFloat("_UseReflections", 0f);
+            if (mat.HasProperty("_UseFresnelReflections")) mat.SetFloat("_UseFresnelReflections", 0f);
+
+            string[] hardHighlightKeywords =
+            {
+                "TCP2_SPECULAR", "TCP2_SPECULAR_STYLIZED", "TCP2_SPECULAR_CRISP",
+                "TCP2_RIM_LIGHTING", "TCP2_RIM_LIGHTING_LIGHTMASK",
+                "TCP2_REFLECTIONS", "TCP2_REFLECTIONS_FRESNEL"
+            };
+            foreach (string keyword in hardHighlightKeywords) mat.DisableKeyword(keyword);
+        }
+
+        static void SetupCoolDarkToon(Material mat, Color highlight, Color shadow, Color specular)
+        {
+            if (mat.HasProperty("_HColor")) mat.SetColor("_HColor", highlight);
+            if (mat.HasProperty("_SColor")) mat.SetColor("_SColor", shadow);
+            if (mat.HasProperty("_SpecularColor")) mat.SetColor("_SpecularColor", specular);
+        }
+
         static void SetBaseColor(Material mat, Color color)
         {
             if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", color);
@@ -463,12 +611,10 @@ namespace CubeBlaster.EditorTools
             mat.color = color;
         }
 
-        /// <summary>TMP preset for the world-space ammo numbers: bold white face + soft dark outline.</summary>
         static Material BakeLabelMaterial()
         {
             string path = MatDir + "/NumberLabel.mat";
             var existing = AssetDatabase.LoadAssetAtPath<Material>(path);
-            if (existing != null && !_force) return existing;
 
             var font = AssetDatabase.LoadAssetAtPath<TMP_FontAsset>(FontPath);
             if (font == null)
@@ -479,98 +625,57 @@ namespace CubeBlaster.EditorTools
             Material mat = existing != null ? existing : new Material(font.material);
             mat.shader = font.material.shader;
             mat.CopyPropertiesFromMaterial(font.material);
-            mat.SetFloat(ShaderUtilities.ID_FaceDilate, 0.08f);
-            mat.SetFloat(ShaderUtilities.ID_OutlineWidth, 0.22f);
-            mat.SetColor(ShaderUtilities.ID_OutlineColor, new Color(0.10f, 0.12f, 0.22f, 1f));
+
+            mat.SetFloat(ShaderUtilities.ID_FaceDilate, LabelFaceDilate);
+            mat.SetFloat(ShaderUtilities.ID_OutlineWidth, LabelOutlineWidth);
+            mat.SetColor(ShaderUtilities.ID_OutlineColor, LabelOutlineColor);
+
+            mat.EnableKeyword("UNDERLAY_ON");
+            mat.SetColor(ShaderUtilities.ID_UnderlayColor, LabelShadowColor);
+            mat.SetFloat(ShaderUtilities.ID_UnderlayOffsetX, 0.55f);
+            mat.SetFloat(ShaderUtilities.ID_UnderlayOffsetY, -0.55f);
+            mat.SetFloat(ShaderUtilities.ID_UnderlayDilate, 0.05f);
+            mat.SetFloat(ShaderUtilities.ID_UnderlaySoftness, 0.25f);
+
             if (existing == null) AssetDatabase.CreateAsset(mat, path);
             else EditorUtility.SetDirty(mat);
             return mat;
         }
 
-        // ================= FX prefabs =================
-
-        static void SetFade(ParticleSystem ps, float a0, float hold)
+        static Shockwave BakeShockwavePrefab(Mesh quad, Material ringMat)
         {
-            var col = ps.colorOverLifetime;
-            col.enabled = true;
-            var g = new Gradient();
-            var alphas = hold > 0f
-                ? new[] { new GradientAlphaKey(a0, 0f), new GradientAlphaKey(a0, hold), new GradientAlphaKey(0f, 1f) }
-                : new[] { new GradientAlphaKey(a0, 0f), new GradientAlphaKey(0f, 1f) };
-            g.SetKeys(
-                new[] { new GradientColorKey(Color.white, 0f), new GradientColorKey(Color.white, 1f) },
-                alphas);
-            col.color = new ParticleSystem.MinMaxGradient(g);
-        }
-
-        static ParticleSystem BakeFxPrefab(string path, Material mat, System.Action<ParticleSystem> setup)
-        {
-            var existingGo = AssetDatabase.LoadAssetAtPath<GameObject>(path);
-            if (existingGo != null && !_force) return existingGo.GetComponent<ParticleSystem>();
-
-            var go = new GameObject(Path.GetFileNameWithoutExtension(path));
-            try
-            {
-                var ps = go.AddComponent<ParticleSystem>();
-                var main = ps.main;
-                main.playOnAwake = false;
-                main.loop = false;
-                main.simulationSpace = ParticleSystemSimulationSpace.World;
-                main.startSpeed = 0f;
-
-                var em = ps.emission; em.enabled = false;
-                var sh = ps.shape; sh.enabled = false;
-
-                var r = go.GetComponent<ParticleSystemRenderer>();
-                r.renderMode = ParticleSystemRenderMode.Billboard;
-                r.sharedMaterial = mat;
-
-                setup(ps);
-
-                var saved = PrefabUtility.SaveAsPrefabAsset(go, path);
-                return saved.GetComponent<ParticleSystem>();
-            }
-            finally
-            {
-                Object.DestroyImmediate(go);
-            }
-        }
-
-        static Debris BakeDebrisPrefab(Mesh rounded, Material defaultMat)
-        {
-            string path = PrefabDir + "/Debris.prefab";
+            string path = FxPrefabDir + "/Shockwave.prefab";
             if (AssetDatabase.LoadAssetAtPath<GameObject>(path) == null)
             {
-                var seed = new GameObject("Debris");
+                var seed = new GameObject("Shockwave");
                 PrefabUtility.SaveAsPrefabAsset(seed, path);
                 Object.DestroyImmediate(seed);
             }
 
-            // Always ensure structure + serialized refs (idempotent; keeps the asset GUID).
             EditPrefab(path, root =>
             {
                 var mf = root.GetComponent<MeshFilter>();
                 if (mf == null) mf = root.AddComponent<MeshFilter>();
-                mf.sharedMesh = rounded;
+                mf.sharedMesh = quad;
+
                 var mr = root.GetComponent<MeshRenderer>();
                 if (mr == null) mr = root.AddComponent<MeshRenderer>();
-                if (mr.sharedMaterial == null || _force) mr.sharedMaterial = defaultMat;
-                var col = root.GetComponent<BoxCollider>();
-                if (col == null) col = root.AddComponent<BoxCollider>();
-                col.size = Vector3.one;
-                var rb = root.GetComponent<Rigidbody>();
-                if (rb == null) rb = root.AddComponent<Rigidbody>();
-                rb.mass = 0.08f;
-                var d = root.GetComponent<Debris>();
-                if (d == null) d = root.AddComponent<Debris>();
-                SetRef(d, "meshRenderer", mr);
-                SetRef(d, "box", col);
-                SetRef(d, "body", rb);
-            });
-            return AssetDatabase.LoadAssetAtPath<GameObject>(path).GetComponent<Debris>();
-        }
+                mr.sharedMaterial = ringMat;
+                mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                mr.receiveShadows = false;
+                mr.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
+                mr.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
 
-        // ================= gameplay prefabs =================
+                var billboard = root.GetComponent<Billboard>();
+                if (billboard == null) billboard = root.AddComponent<Billboard>();
+                billboard.towardCamera = 0f;
+
+                var shockwave = root.GetComponent<Shockwave>();
+                if (shockwave == null) shockwave = root.AddComponent<Shockwave>();
+                SetRef(shockwave, "quadRenderer", mr);
+            });
+            return AssetDatabase.LoadAssetAtPath<GameObject>(path).GetComponent<Shockwave>();
+        }
 
         static void EditPrefab(string path, System.Action<GameObject> edit)
         {
@@ -606,7 +711,7 @@ namespace CubeBlaster.EditorTools
         }
 
         static TextMeshPro AddLabel(Transform parent, string text, float size, TMP_FontAsset font,
-            Material labelMat, float towardCamera, Vector3 localPos)
+            Material labelMat, float towardCamera, Vector3 localPos, Vector2 fitSize = default)
         {
             var go = new GameObject("Label");
             go.transform.SetParent(parent, false);
@@ -618,7 +723,17 @@ namespace CubeBlaster.EditorTools
             tm.fontStyle = FontStyles.Bold;
             tm.alignment = TextAlignmentOptions.Center;
             tm.enableWordWrapping = false;
-            tm.rectTransform.sizeDelta = new Vector2(2f, 2f);
+            tm.margin = Vector4.zero;
+
+            bool fits = fitSize.x > 0f && fitSize.y > 0f;
+            tm.rectTransform.sizeDelta = fits ? fitSize : new Vector2(2f, 2f);
+            if (fits)
+            {
+                tm.enableAutoSizing = true;
+                tm.fontSizeMax = size * 64f;
+                tm.fontSizeMin = size * 64f * 0.55f;
+            }
+
             if (font != null) tm.font = font;
             if (labelMat != null) tm.fontSharedMaterial = labelMat;
             var b = go.AddComponent<Billboard>();
@@ -639,6 +754,21 @@ namespace CubeBlaster.EditorTools
             so.ApplyModifiedPropertiesWithoutUndo();
         }
 
+        static void SetRefArray(Object target, string fieldName, params Object[] values)
+        {
+            var so = new SerializedObject(target);
+            var prop = so.FindProperty(fieldName);
+            if (prop == null)
+            {
+                Debug.LogWarning("[VisualAssetBaker] field '" + fieldName + "' not found on " + target);
+                return;
+            }
+            prop.arraySize = values.Length;
+            for (int i = 0; i < values.Length; i++)
+                prop.GetArrayElementAtIndex(i).objectReferenceValue = values[i];
+            so.ApplyModifiedPropertiesWithoutUndo();
+        }
+
         static void BakeVoxelCubePrefab(Mesh rounded, Material defaultMat)
         {
             EditPrefab(PrefabDir + "/VoxelCube.prefab", root =>
@@ -650,20 +780,13 @@ namespace CubeBlaster.EditorTools
                 if (mr == null) mr = root.AddComponent<MeshRenderer>();
                 mr.sharedMaterial = defaultMat;
 
-                // Explosion physics is authored here (disabled/kinematic) so runtime never AddComponents.
-                var col = root.GetComponent<BoxCollider>();
-                if (col == null) col = root.AddComponent<BoxCollider>();
-                col.size = Vector3.one;
-                col.enabled = false;
                 var rb = root.GetComponent<Rigidbody>();
-                if (rb == null) rb = root.AddComponent<Rigidbody>();
-                rb.mass = 0.2f;
-                rb.isKinematic = true;
+                if (rb != null) Object.DestroyImmediate(rb, true);
+                var col = root.GetComponent<BoxCollider>();
+                if (col != null) Object.DestroyImmediate(col, true);
 
                 var cube = root.GetComponent<VoxelCube>();
                 SetRef(cube, "meshRenderer", mr);
-                SetRef(cube, "box", col);
-                SetRef(cube, "body", rb);
             });
         }
 
@@ -676,7 +799,7 @@ namespace CubeBlaster.EditorTools
                 var trail = root.GetComponent<TrailRenderer>();
                 if (trail == null) trail = root.AddComponent<TrailRenderer>();
                 trail.sharedMaterial = trailMat;
-                trail.time = Cfg.Active.dartTrailTime;
+                trail.time = GameConfig.Active.dartTrailTime;
                 trail.startWidth = 0.2f;
                 trail.endWidth = 0f;
                 trail.numCapVertices = 4;
@@ -696,72 +819,102 @@ namespace CubeBlaster.EditorTools
             });
         }
 
-        static void BakeGunPrefab(Mesh rounded, Mesh sphere, Mesh cylinder,
+        static void BakeGunPrefab(Mesh roundedCube, Mesh gunBody, Mesh puck,
             Material gunPart, Material gunHole, TMP_FontAsset font, Material labelMat)
         {
             EditPrefab(PrefabDir + "/Gun.prefab", root =>
             {
                 ClearChildren(root);
 
-                // Reference look: a squat rounded "canister" tinted with the gun's color, dome
-                // shoulders, a short stubby muzzle poking up-forward, and a BIG white ammo number.
-                var body = AddMeshChild(root.transform, "Body", rounded, gunPart,
-                    new Vector3(0f, -0.10f, 0f), Quaternion.identity, new Vector3(0.88f, 0.84f, 0.68f));
-                var dome = AddMeshChild(root.transform, "Dome", sphere, gunPart,
-                    new Vector3(0f, 0.28f, 0f), Quaternion.identity, new Vector3(0.68f, 0.4f, 0.54f));
+                var cfg = GameConfig.Active;
+                var size = cfg.gunBodySize;
+                float bl = cfg.gunBarrelLength, br = cfg.gunBarrelRadius;
 
-                // Muzzle: short chunky stub tilted up-forward (+Z toward the sculpture).
-                Vector3 dir = new Vector3(0f, 0.3f, 1f).normalized;
-                var mount = new GameObject("BarrelMount").transform;
-                mount.SetParent(root.transform, false);
-                mount.localPosition = new Vector3(0f, 0.38f, 0.02f);
-                mount.localRotation = Quaternion.FromToRotation(Vector3.up, dir);
+                const float groundY = -0.52f;
+                var rig = new GameObject("Rig").transform;
+                rig.SetParent(root.transform, false);
+                rig.localPosition = new Vector3(0f, groundY, 0f);
 
-                const float len = 0.42f;
-                var barrelBase = AddMeshChild(mount, "Base", sphere, gunPart,
-                    Vector3.zero, Quaternion.identity, new Vector3(0.3f, 0.3f, 0.3f));
-                var tube = AddMeshChild(mount, "Tube", cylinder, gunPart,
-                    new Vector3(0, len * 0.5f, 0), Quaternion.identity, new Vector3(0.26f, len * 0.5f, 0.26f));
-                var rim = AddMeshChild(mount, "Rim", cylinder, gunPart,
-                    new Vector3(0, len - 0.03f, 0), Quaternion.identity, new Vector3(0.32f, 0.06f, 0.32f));
-                AddMeshChild(mount, "Hole", cylinder, gunHole,
-                    new Vector3(0, len + 0.015f, 0), Quaternion.identity, new Vector3(0.18f, 0.03f, 0.18f));
+                float bodyY = size.y * 0.5f;
+                var body = AddMeshChild(rig, "Body", roundedCube, gunPart,
+                    new Vector3(0f, bodyY, 0f), Quaternion.identity, size);
 
-                // Fire point exactly at the muzzle tip.
+                var barrel = new GameObject("Barrel").transform;
+                barrel.SetParent(rig, false);
+                barrel.localPosition = new Vector3(0f, bodyY + size.y * 0.06f, size.z * 0.42f);
+                barrel.localRotation = Quaternion.Euler(-cfg.gunBarrelElevation, 0f, 0f);
+
+                var lie = Quaternion.Euler(90f, 0f, 0f);
+                Vector3 Round(float dia, float thick) { return new Vector3(dia, thick, dia); }
+
+                var collar = AddMeshChild(barrel, "Collar", puck, gunPart,
+                    new Vector3(0f, 0f, bl * 0.22f), lie, Round(br * 2.90f, bl * 0.24f));
+                var tube = AddMeshChild(barrel, "Tube", puck, gunPart,
+                    new Vector3(0f, 0f, bl * 0.56f), lie, Round(br * 2f, bl * 0.64f));
+                var band = AddMeshChild(barrel, "Band", puck, gunPart,
+                    new Vector3(0f, 0f, bl * 0.79f), lie, Round(br * 2.50f, bl * 0.15f));
+                var rim = AddMeshChild(barrel, "Rim", puck, gunPart,
+                    new Vector3(0f, 0f, bl * 0.93f), lie, Round(br * 2.76f, bl * 0.18f));
+
+                AddMeshChild(barrel, "Bore", puck, gunHole,
+                    new Vector3(0f, 0f, bl * 0.95f), lie, Round(br * 1.45f, bl * 0.26f));
+
                 var tip = new GameObject("BarrelTip").transform;
-                tip.SetParent(mount, false);
-                tip.localPosition = new Vector3(0, len + 0.06f, 0);
+                tip.SetParent(barrel, false);
+                tip.localPosition = new Vector3(0f, 0f, bl * 1.10f);
 
-                var label = AddLabel(root.transform, "0", 0.1f, font, labelMat, 0.75f, new Vector3(0f, 0.05f, 0f));
+                var nub = AddMeshChild(rig, "Nub", gunBody, gunPart,
+                    new Vector3(0f, bodyY - size.y * 0.26f, -size.z * 0.5f - 0.04f), Quaternion.identity,
+                    new Vector3(size.x * 0.24f, size.y * 0.20f, 0.12f));
+
+                var label = AddLabel(root.transform, "0", 0.066f, font, labelMat, 0.80f,
+                    new Vector3(0f, groundY + bodyY, 0f));
 
                 var gun = root.GetComponent<Gun>();
-                SetRef(gun, "body", body.transform);
+                SetRef(gun, "bodyPivot", rig);
                 SetRef(gun, "barrelTip", tip);
                 SetRef(gun, "label", label);
                 SetRef(gun, "bodyRenderer", body.GetComponent<MeshRenderer>());
-                SetRef(gun, "domeRenderer", dome.GetComponent<MeshRenderer>());
-                SetRef(gun, "tubeRenderer", tube.GetComponent<MeshRenderer>());
 
-                var so = new SerializedObject(gun);
-                var arr = so.FindProperty("rimRenderers");
-                arr.arraySize = 2;
-                arr.GetArrayElementAtIndex(0).objectReferenceValue = barrelBase.GetComponent<MeshRenderer>();
-                arr.GetArrayElementAtIndex(1).objectReferenceValue = rim.GetComponent<MeshRenderer>();
-                so.ApplyModifiedPropertiesWithoutUndo();
+                SetRefArray(gun, "partRenderers",
+                    collar.GetComponent<MeshRenderer>(), tube.GetComponent<MeshRenderer>(),
+                    band.GetComponent<MeshRenderer>(), rim.GetComponent<MeshRenderer>(),
+                    nub.GetComponent<MeshRenderer>());
             });
         }
 
-        static void BakeGunSlotPrefab(Mesh rounded, Material slotPad)
+        static void BakeGunSlotPrefab(Mesh rounded, Material slotPad, Material slotWell)
         {
             EditPrefab(PrefabDir + "/GunSlot.prefab", root =>
             {
                 ClearChildren(root);
 
-                // Chunky toy-tray socket: tall enough to read as a 3D box from the 3/4 camera.
-                AddMeshChild(root.transform, "Pad", rounded, slotPad,
-                    new Vector3(0, -0.56f, 0), Quaternion.identity, new Vector3(1.06f, 0.34f, 1.06f));
+                const float half = 0.56f;
+                const float bar = 0.16f;
+                const float outer = half * 2f + bar;
+                const float rimY = -0.54f, rimH = 0.30f;
 
-                // Trigger collider on the slot root for drop hit-testing.
+                var rimN = AddMeshChild(root.transform, "RimN", rounded, slotPad,
+                    new Vector3(0f, rimY, half), Quaternion.identity, new Vector3(outer, rimH, bar));
+                var rimS = AddMeshChild(root.transform, "RimS", rounded, slotPad,
+                    new Vector3(0f, rimY, -half), Quaternion.identity, new Vector3(outer, rimH, bar));
+                var rimE = AddMeshChild(root.transform, "RimE", rounded, slotPad,
+                    new Vector3(half, rimY, 0f), Quaternion.identity, new Vector3(bar, rimH, outer));
+                var rimW = AddMeshChild(root.transform, "RimW", rounded, slotPad,
+                    new Vector3(-half, rimY, 0f), Quaternion.identity, new Vector3(bar, rimH, outer));
+
+                AddMeshChild(root.transform, "Floor", rounded, slotWell,
+                    new Vector3(0f, -0.70f, 0f), Quaternion.identity, new Vector3(1.10f, 0.26f, 1.10f));
+
+                var slotSo = new SerializedObject(root.GetComponent<GunSlot>());
+                var pads = slotSo.FindProperty("padRenderers");
+                pads.arraySize = 4;
+                pads.GetArrayElementAtIndex(0).objectReferenceValue = rimN.GetComponent<MeshRenderer>();
+                pads.GetArrayElementAtIndex(1).objectReferenceValue = rimS.GetComponent<MeshRenderer>();
+                pads.GetArrayElementAtIndex(2).objectReferenceValue = rimE.GetComponent<MeshRenderer>();
+                pads.GetArrayElementAtIndex(3).objectReferenceValue = rimW.GetComponent<MeshRenderer>();
+                slotSo.ApplyModifiedPropertiesWithoutUndo();
+
                 var box = root.GetComponent<BoxCollider>();
                 if (box == null) box = root.AddComponent<BoxCollider>();
                 box.isTrigger = true;
@@ -783,22 +936,19 @@ namespace CubeBlaster.EditorTools
                 var cube = AddMeshChild(root.transform, "Cube", rounded, defaultMat,
                     Vector3.zero, Quaternion.identity, Vector3.one * 0.92f);
 
-                // Centered on the cube, pulled toward the camera so the number reads dead-center
-                // in the cell at any pitch.
-                var label = AddLabel(root.transform, "0", 0.11f, font, labelMat, 0.9f, Vector3.zero);
+                var label = AddLabel(root.transform, "0", BankLabelSize, font, labelMat, 0.9f,
+                    Vector3.zero, BankLabelFit);
 
                 var block = root.GetComponent<BankBlock>();
                 SetRef(block, "cubeRenderer", cube.GetComponent<MeshRenderer>());
                 SetRef(block, "label", label);
-                SetRef(block, "box", box);
+                SetRef(block, "boxCollider", box);
             });
         }
 
-        // ================= post-processing =================
-
         static void BakePostFx(VisualLibrary lib)
         {
-            var cfg = Cfg.Active;
+            var cfg = GameConfig.Active;
 
             var profile = AssetDatabase.LoadAssetAtPath<VolumeProfile>(PostProfilePath);
             if (profile == null || _force)
@@ -809,15 +959,13 @@ namespace CubeBlaster.EditorTools
                     AssetDatabase.CreateAsset(profile, PostProfilePath);
                 }
 
-                // Subtle, controlled stack (art doc: slight saturation/contrast, very light bloom,
-                // light vignette — no heavy cinematic grading). Values seeded from GameConfig.
                 var bloom = GetOrAddOverride<Bloom>(profile);
                 bloom.intensity.Override(cfg.postBloomIntensity);
                 bloom.threshold.Override(1.1f);
 
                 var vignette = GetOrAddOverride<Vignette>(profile);
                 vignette.intensity.Override(cfg.postVignette);
-                vignette.color.Override(new Color(0.05f, 0.08f, 0.16f)); // navy, not pure black
+                vignette.color.Override(new Color(0.05f, 0.08f, 0.16f));
 
                 var adjust = GetOrAddOverride<ColorAdjustments>(profile);
                 adjust.saturation.Override(cfg.postSaturation);
@@ -827,7 +975,6 @@ namespace CubeBlaster.EditorTools
                 EditorUtility.SetDirty(profile);
             }
 
-            // Scene: global "PostFX" Volume + wire GameBootstrap.visualLibrary.
             var scene = EditorSceneManager.GetActiveScene();
             bool openedHere = false;
             if (scene.path != ScenePath)
@@ -866,7 +1013,6 @@ namespace CubeBlaster.EditorTools
             if (bootstrap != null) SetRef(bootstrap, "visualLibrary", lib);
             else Debug.LogWarning("[VisualAssetBaker] GameBootstrap not found in scene — visualLibrary not wired (Resources fallback still works).");
 
-            // ---- scene ref wiring (runtime code never GetComponents — refs are authored here) ----
             if (cam != null)
             {
                 var camData = cam.GetComponent<UniversalAdditionalCameraData>();
@@ -876,8 +1022,27 @@ namespace CubeBlaster.EditorTools
                     SetRef(bootstrap, "mainCamera", cam);
                     SetRef(bootstrap, "cameraData", camData);
                 }
-                if (rig != null) SetRef(rig, "cam", cam);
-                if (input != null) SetRef(input, "cam", cam);
+                if (rig != null) SetRef(rig, "sceneCamera", cam);
+                if (input != null) SetRef(input, "sceneCamera", cam);
+
+                var oldBackdrop = cam.transform.Find("Backdrop");
+                if (oldBackdrop != null) Object.DestroyImmediate(oldBackdrop.gameObject);
+                if (lib.backdrop != null)
+                {
+                    var bgGo = new GameObject("Backdrop");
+                    bgGo.transform.SetParent(cam.transform, false);
+                    var mf = bgGo.AddComponent<MeshFilter>();
+                    mf.sharedMesh = Resources.GetBuiltinResource<Mesh>("Quad.fbx");
+                    var mr = bgGo.AddComponent<MeshRenderer>();
+                    mr.sharedMaterial = lib.backdrop;
+
+                    mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                    mr.receiveShadows = false;
+                    mr.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
+                    mr.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
+                    var bd = bgGo.AddComponent<Backdrop>();
+                    SetRef(bd, "sceneCamera", cam);
+                }
             }
             else Debug.LogWarning("[VisualAssetBaker] No Camera found in scene — camera refs not wired.");
 
@@ -890,8 +1055,8 @@ namespace CubeBlaster.EditorTools
                 AudioSource music = sources.Length > 1 ? sources[1] : audio.gameObject.AddComponent<AudioSource>();
                 sfx.playOnAwake = false;
                 music.playOnAwake = false; music.loop = true; music.volume = 0.28f;
-                SetRef(audio, "_sfx", sfx);
-                SetRef(audio, "_music", music);
+                SetRef(audio, "sfxSource", sfx);
+                SetRef(audio, "musicSource", music);
             }
 
             EditorSceneManager.MarkSceneDirty(scene);

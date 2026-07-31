@@ -524,17 +524,25 @@ def build_bank(voxels, level, rng):
     for v in voxels:
         need[v["c"]] = need.get(v["c"], 0) + 1
 
-    # Surplus shrinks as levels progress: early levels forgive wasted ammo, late ones don't.
+    # EXACT ammo, no surplus: the bank holds one dart per cube, per colour, so
+    # sum(bank) == len(voxels). Nothing can be wasted, which is what makes the
+    # exact count solvable rather than brutal:
+    #   - a gun only fires when the selector hands it a live, unreserved,
+    #     camera-exposed voxel of its colour (Gun.Update -> RequestTarget < 0 = hold),
+    #   - reservation guarantees no two darts claim the same voxel,
+    #   - GameManager.DeployBlock refuses a block whose colour is already cleared,
+    #   - a gun only retires early once its colour is gone, i.e. it has nothing left
+    #     to shoot anyway.
     t = (level - 1) / max(1, LEVEL_COUNT - 1)
-    surplus = 1.32 - 0.20 * t
 
     # Block values stay in a readable band; more voxels -> more blocks, not huge numbers.
     target_block = 12 + int(26 * t)
 
     blocks = []
     for color in sorted(need):
-        ammo = int(math.ceil(need[color] * surplus))
+        ammo = need[color]
         count = max(2, int(round(ammo / float(target_block))))
+        count = max(1, min(count, ammo))  # never emit a zero-value block
         base, rem = divmod(ammo, count)
         parts = [base + (1 if i < rem else 0) for i in range(count)]
         # jitter so columns don't look machine-uniform, keeping the per-colour total intact
@@ -550,6 +558,25 @@ def build_bank(voxels, level, rng):
     # instead of clearing one colour at a time in bank order.
     rng.shuffle(blocks)
     return [b[0] for b in blocks], [b[1] for b in blocks]
+
+
+def check_bank(level, voxels, bank, bank_colors):
+    """Guns are colour-locked, so the exact-ammo rule has to hold PER COLOUR, not just
+    in total — a global match that is short on red and long on green is unwinnable."""
+    need = {}
+    for v in voxels:
+        need[v["c"]] = need.get(v["c"], 0) + 1
+    have = {}
+    for value, color in zip(bank, bank_colors):
+        have[color] = have.get(color, 0) + value
+
+    if min(bank) <= 0:
+        raise AssertionError("level %d has a non-positive bank block: %s" % (level, bank))
+    if need != have:
+        raise AssertionError("level %d ammo != cubes per colour: need=%s have=%s"
+                             % (level, need, have))
+    if sum(bank) != len(voxels):
+        raise AssertionError("level %d ammo %d != cubes %d" % (level, sum(bank), len(voxels)))
 
 
 # ---------------------------------------------------------------------------
@@ -631,6 +658,7 @@ def main():
         sh, depth, palette_set, rng = plan(level)
         voxels = build_voxels(sh, palette_set, depth)
         bank, bank_colors = build_bank(voxels, level, rng)
+        check_bank(level, voxels, bank, bank_colors)
 
         data = {
             "level": level,

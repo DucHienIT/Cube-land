@@ -1,32 +1,28 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace CubeBlaster
 {
-    /// <summary>
-    /// Owns all screens (plain classes) and toggles them. Attached to the UICanvas scene object.
-    /// Screens are rebuilt/refreshed on show so stars & unlock state stay current.
-    /// </summary>
-    public class UIController : MonoBehaviour
+    public class UIController : MonoBehaviour, IUIHost
     {
         [Header("Scene-authored refs")]
         [SerializeField] RectTransform root;
 
-        GameManager _gm;
-        RectTransform _root;
+        readonly List<IUIScreen> _exclusiveScreens = new List<IUIScreen>();
 
+        IGameFlow _game;
         MainMenuScreen _menu;
         LevelSelectScreen _select;
         HudScreen _hud;
         WinScreen _win;
         SettingsScreen _settings;
 
-        public GameManager Game => _gm;
-        public RectTransform Root => _root;
+        public RectTransform Root => root;
+        public IGameFlow Game => _game;
 
-        public void Init(GameManager gm)
+        public void Initialize(IGameFlow game)
         {
-            _gm = gm;
-            _root = root;
+            _game = game;
 
             _menu = new MainMenuScreen(this);
             _select = new LevelSelectScreen(this);
@@ -34,39 +30,99 @@ namespace CubeBlaster
             _win = new WinScreen(this);
             _settings = new SettingsScreen(this);
 
-            _menu.Build(_root); _menu.Hide();
-            _select.Build(_root); _select.Hide();
-            _hud.Build(_root); _hud.Hide();
-            _win.Build(_root); _win.Hide();
-            _settings.Build(_root); _settings.Hide();
+            _exclusiveScreens.Clear();
+            _exclusiveScreens.AddRange(new IUIScreen[] { _menu, _select, _hud, _win });
+
+            BuildHidden(_menu, _select, _hud, _win, _settings);
         }
 
-        void HideAll()
+        void BuildHidden(params IUIScreen[] screens)
         {
-            _menu.Hide(); _select.Hide(); _hud.Hide(); _win.Hide();
+            foreach (var screen in screens)
+            {
+                screen.Build(root);
+                screen.Hide();
+            }
         }
 
-        public void ShowMainMenu() { HideAll(); _menu.Refresh(); _menu.Show(); }
-        public void ShowLevelSelect() { HideAll(); _select.Refresh(); _select.Show(); }
-        public void ShowHud(int level) { HideAll(); _hud.Set(level); _hud.Show(); }
-        public void ShowWin(int level, int stars, int coins, bool hasNext) { _win.Set(level, stars, coins, hasNext); _win.Show(); }
-        public void ToggleSettings() { if (_settings.Visible) _settings.Hide(); else { _settings.Refresh(); _settings.Show(); } }
+        void HideExclusive()
+        {
+            foreach (var screen in _exclusiveScreens) screen.Hide();
+        }
+
+        public void ShowMainMenu()
+        {
+            HideExclusive();
+            _menu.Refresh();
+            _menu.Show();
+        }
+
+        public void ShowLevelSelect()
+        {
+            HideExclusive();
+            _select.Refresh();
+            _select.Show();
+        }
+
+        public void ShowHud(int level)
+        {
+            HideExclusive();
+            _hud.Set(level);
+            _hud.Show();
+        }
+
+        public void ShowWin(int level, int stars, int coins, bool hasNext)
+        {
+            _win.Set(level, stars, coins, hasNext);
+            _win.Show();
+        }
+
+        public void ToggleSettings()
+        {
+            if (_settings.Visible)
+            {
+                _settings.Hide();
+                return;
+            }
+            _settings.Refresh();
+            _settings.Show();
+        }
 
         void Update()
         {
-            if (_gm != null && _gm.State == GameState.Playing && _hud != null)
-                _hud.SetProgress(_gm.AliveVoxels, _gm.TotalVoxels);
+            if (_game == null || _game.State != GameState.Playing || _hud == null) return;
+            _hud.SetProgress(_game.AliveVoxels, _game.TotalVoxels);
         }
 
-        // Called by screens
-        public void PlayPressed()
+        public void GoToLevelSelect()
         {
-            if (AudioManager.Instance != null) AudioManager.Instance.PlayClick();
+            AudioService.Current.PlayClick();
             ShowLevelSelect();
         }
-        public void StartLevel(int level) { if (AudioManager.Instance != null) AudioManager.Instance.PlayClick(); _gm.StartLevel(level); }
-        public void BackToMenu() { if (AudioManager.Instance != null) AudioManager.Instance.PlayClick(); _gm.ShowMainMenu(); }
-        public void Restart() { if (AudioManager.Instance != null) AudioManager.Instance.PlayClick(); _gm.RestartLevel(); }
-        public void Next() { if (AudioManager.Instance != null) AudioManager.Instance.PlayClick(); _win.Hide(); _gm.NextLevel(); }
+
+        public void StartLevel(int level)
+        {
+            AudioService.Current.PlayClick();
+            _game.StartLevel(level);
+        }
+
+        public void GoToMainMenu()
+        {
+            AudioService.Current.PlayClick();
+            _game.ShowMainMenu();
+        }
+
+        public void RestartLevel()
+        {
+            AudioService.Current.PlayClick();
+            _game.RestartLevel();
+        }
+
+        public void GoToNextLevel()
+        {
+            AudioService.Current.PlayClick();
+            _win.Hide();
+            _game.NextLevel();
+        }
     }
 }

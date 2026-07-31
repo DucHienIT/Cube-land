@@ -14,33 +14,54 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   targetFrameRate: 60
   voxelSize: 0.5
-  voxelGap: 0
-  voxelCornerRadius: 0.18
+  voxelGap: 0.035
+  voxelCornerRadius: 0.16
   voxelRoundSegments: 3
+  voxelLightRampSmoothing: 0.42
+  voxelHighlightStrength: 0.86
   voxelValueJitter: 0.04
   voxelHueJitter: 0.02
   voxelScaleJitter: 0.02
-  ambientSky: {r: 0.92, g: 0.88, b: 0.84, a: 1}
-  ambientEquator: {r: 0.6, g: 0.62, b: 0.74, a: 1}
-  ambientGround: {r: 0.5, g: 0.46, b: 0.68, a: 1}
+  ambientSky: {r: 0.68, g: 0.62, b: 0.58, a: 1}
+  ambientEquator: {r: 0.44, g: 0.46, b: 0.56, a: 1}
+  ambientGround: {r: 0.3, g: 0.3, b: 0.4, a: 1}
   sculptureCenter: {x: 0, y: 3.2, z: 0}
   sculptureTilt: 55
-  debrisForce: 4.5
-  debrisLife: 1.1
-  debrisTorque: 6
-  debrisMediumCount: 3
-  debrisSmallCount: 5
+  sculptureScale: 1
+  sculptureRestYaw: 26
+  sculptureFillWidth: 0.68
   hitPunchScale: 0.14
   hitPunchTime: 0.16
   hitPunchRadius: 1.35
-  fxBurstCount: 10
-  fxShardCount: 6
-  fxPuffCount: 3
+  hitFlashTime: 0.08
+  hitFlashIntensity: 0.55
+  popTime: 0.17
+  popSwell: 0.3
+  popSwellPhase: 0.3
+  popRise: 0.18
+  popFlash: 0.85
+  popSpin: 70
+  shockwaveTime: 0.22
+  shockwaveStartSize: 0.6
+  shockwaveEndSize: 1.7
+  shockwaveAlpha: 0.72
+  shockwaveCameraLift: 0.5
+  shockwaveWhiten: 0.55
+  shockwaveMaxActive: 16
   gunSlotCount: 4
   gunFireInterval: 0.16
   gunSlotSpacing: 1.35
   gunSlotY: 0
   gunSlotZ: -2.6
+  gunTintMaxValue: 0.8
+  gunBodyRadius: 0.26
+  gunBodySegments: 5
+  gunBodySize: {x: 0.92, y: 0.8, z: 0.94}
+  gunBarrelElevation: 0
+  gunBarrelLength: 0.41
+  gunBarrelRadius: 0.228
+  gunPuckSides: 20
+  gunPuckRim: 0.14
   dartSpeed: 22
   dartLife: 2
   dartTrailTime: 0.26
@@ -57,21 +78,27 @@ MonoBehaviour:
   cameraOrthographic: 0
   cameraPitch: 75
   cameraFov: 32
-  cameraFitBottomY: -5.2
+  cameraFitBottomY: -4.5
   winPopupDelay: 0.7
   cameraFitPadding: 1.06
-  shakeOnHit: 0.045
-  toonHighlight: {r: 0.98, g: 0.96, b: 0.93, a: 1}
-  toonShadow: {r: 0.52, g: 0.49, b: 0.56, a: 1}
-  toonRampThreshold: 0.44
-  toonRampSmoothing: 0.38
-  toonSpecSize: 0.25
-  toonSpecSmoothing: 0.45
-  toonSpecColor: {r: 0.18, g: 0.175, b: 0.165, a: 1}
+  shakeOnHit: 0
+  toonHighlight: {r: 0.9, g: 0.84, b: 0.78, a: 1}
+  toonShadow: {r: 0.44, g: 0.38, b: 0.42, a: 1}
+  toonRampThreshold: 0.49
+  toonRampSmoothing: 0.22
+  toonSpecSize: 0.2
+  toonSpecSmoothing: 0.32
+  toonSpecColor: {r: 0.2, g: 0.17, b: 0.15, a: 1}
   postProcessing: 1
-  postBloomIntensity: 0.1
-  postVignette: 0.12
-  postSaturation: 8
-  postContrast: 5
+  postBloomIntensity: 0.055
+  postVignette: 0.13
+  postSaturation: 13
+  postContrast: 10
   postExposure: 0
+  bgGradientStrength: 0.09
+  bgGradientRadius: 0.62
+  bgGradientTint: 0.1
+  aoIntensity: 0.95
+  aoRadius: 0.2
+  aoDirectStrength: 0.25
   coinsPerLevel: 20

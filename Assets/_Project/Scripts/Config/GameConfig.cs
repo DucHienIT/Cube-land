@@ -2,126 +2,181 @@ using UnityEngine;
 
 namespace CubeBlaster
 {
-    /// <summary>
-    /// All gameplay/feel tunables. Never hardcode these in gameplay code — designers tune here.
-    /// Access via the <see cref="Cfg"/> facade, which resolves an always-non-null Active instance.
-    /// </summary>
     [CreateAssetMenu(fileName = "GameConfig", menuName = "CubeBlaster/GameConfig")]
     public class GameConfig : ScriptableObject
     {
+        const string ResourcePath = "Config/GameConfig";
+
+        static readonly ConfigProvider<GameConfig> Provider = new ConfigProvider<GameConfig>(ResourcePath);
+
+        public static GameConfig Active => Provider.Active;
+
+        public static void Use(GameConfig asset) => Provider.Use(asset);
+
         [Header("Application")]
         public int targetFrameRate = 60;
 
         [Header("Sculpture")]
-        public float voxelSize = 0.5f;          // world size of one cube
-        // 0 = blocks touch face-to-face (user preference: no visible hole between cubes). The only
-        // separation left is the bevel groove from voxelCornerRadius, which SSAO darkens. History:
-        // 0.07 was chosen so SSAO had a real cavity to find, but that reads as an airy/sparse
-        // silhouette; if the stack ever looks like flat panels again, deepen the bevel groove
-        // (voxelCornerRadius) or raise SSAO rather than re-opening this gap.
-        public float voxelGap = 0f;             // no gap — cubes sit flush, seam comes from the bevel + AO
+        public float voxelSize = 0.5f;
+        public float voxelGap = 0.035f;
 
         [Header("Cube look (rounded corners + shading)")]
-        [Range(0.02f, 0.45f)] public float voxelCornerRadius = 0.18f; // fat bevel — each block reads as its own plastic brick
-        [Range(2, 8)] public int voxelRoundSegments = 3;              // chamfer-soft, not fully round
-        [Range(0f, 0.2f)] public float voxelValueJitter = 0.04f;     // per-block brightness variation — light does the heavy lifting
-        [Range(0f, 0.1f)] public float voxelHueJitter = 0.02f;       // per-block hue variation (quantized)
-        [Range(0f, 0.1f)] public float voxelScaleJitter = 0.02f;     // ±2% size wobble so stacks feel hand-assembled
-        // Trilight ambient: shadow faces shift toward a purple-navy hue instead of multiplying
-        // toward black (art review: "shadow vẫn có màu, không làm asset bị xỉn").
-        // "Everything is lit" (reference philosophy): HIGH ambient floor so no face ever sinks
-        // into dark; form comes from the strong near-top-down key + soft AO, not from dark sides.
-        public Color ambientSky = new Color(0.92f, 0.88f, 0.84f);     // from above — warm, bright
-        public Color ambientEquator = new Color(0.60f, 0.62f, 0.74f); // sides — cool fill sits in the 60-75% band so faces separate but never sink
-        public Color ambientGround = new Color(0.50f, 0.46f, 0.68f);  // from below — navy-purple tint, never dark
+        [Range(0.02f, 0.45f)] public float voxelCornerRadius = 0.16f;
+        [Range(2, 3)] public int voxelRoundSegments = 3;
+        [Tooltip("Width of the diffuse light transition on voxel bevels only. Higher values remove hard light bands without flattening guns/UI props.")]
+        [Range(0.05f, 0.8f)] public float voxelLightRampSmoothing = 0.42f;
+        [Tooltip("Blends the voxel lit tone toward the shared toon shadow tone. Lower values tame bright corner strips while preserving the palette hue.")]
+        [Range(0.5f, 1f)] public float voxelHighlightStrength = 0.86f;
+        [Range(0f, 0.2f)] public float voxelValueJitter = 0.04f;
+        [Range(0f, 0.1f)] public float voxelHueJitter = 0.02f;
+        [Range(0f, 0.1f)] public float voxelScaleJitter = 0.02f;
+        public Color ambientSky = new Color(0.68f, 0.62f, 0.58f);
+        public Color ambientEquator = new Color(0.44f, 0.46f, 0.56f);
+        public Color ambientGround = new Color(0.30f, 0.30f, 0.40f);
         public Vector3 sculptureCenter = new Vector3(0f, 3.2f, 0f);
-        public float sculptureTilt = 55f;       // lean back (deg, about X) so the steep camera still sees the figure's front
-        public float debrisForce = 4.5f;        // impulse applied to a destroyed cube
-        public float debrisLife = 1.1f;         // seconds before a debris cube is culled
-        public float debrisTorque = 6f;
-        public int debrisMediumCount = 3;       // extra mid-size chunks per destroyed voxel (50-70% scale)
-        public int debrisSmallCount = 5;        // extra small fragments per destroyed voxel (20-40% scale)
+        public float sculptureTilt = 55f;
+
+        [Header("Sculpture presentation (framing — no gameplay effect)")]
+        [Range(0.6f, 2.5f)] public float sculptureScale = 1.55f;
+        [Range(0f, 90f)] public float sculptureRestYaw = 26f;
+        [Range(0.25f, 0.95f)] public float sculptureFillWidth = 0.60f;
 
         [Header("Destruction juice (hit feedback)")]
-        public float hitPunchScale = 0.14f;     // neighbor cubes swell by this fraction on a nearby destroy
-        public float hitPunchTime = 0.16f;      // seconds for the punch in-out
-        public float hitPunchRadius = 1.35f;    // in cells — which neighbors receive the punch
-        public int fxBurstCount = 10;           // colored confetti squares per destroy
-        public int fxShardCount = 6;            // fast shard streaks per destroy
-        public int fxPuffCount = 3;             // soft dust puffs per destroy (0 = off)
+        public float hitPunchScale = 0.14f;
+        public float hitPunchTime = 0.16f;
+        public float hitPunchRadius = 1.35f;
+        [Tooltip("Seconds a struck cube's neighbours stay tinted toward their hit-flash colour. " +
+                 "Keep short (0.05-0.10) — a long flash reads as the object changing colour.")]
+        [Range(0f, 0.3f)] public float hitFlashTime = 0.08f;
+        [Tooltip("How far the flash lerps a cube toward white. Deliberately partial: a full-white " +
+                 "flash erases the block's colour identity and reads as a rendering glitch.")]
+        [Range(0f, 1f)] public float hitFlashIntensity = 0.55f;
+
+        [Header("Cube pop (the struck cube's own death animation — spawns nothing)")]
+        [Tooltip("Total seconds from hit to gone. Short: the pop has to finish before the next " +
+                 "dart lands or the sculpture reads as blurring away rather than snapping apart.")]
+        [Range(0.05f, 0.6f)] public float popTime = 0.17f;
+        [Tooltip("How far the cube swells before it collapses. This IS the impact — with no " +
+                 "particles left, the swell is the only thing that sells the hit.")]
+        [Range(0f, 1f)] public float popSwell = 0.30f;
+        [Tooltip("Fraction of popTime spent swelling. The rest is the collapse to zero. Below ~0.2 " +
+                 "the swell is too fast to register; above ~0.5 the cube lingers fat and looks stuck.")]
+        [Range(0.05f, 0.95f)] public float popSwellPhase = 0.30f;
+        [Tooltip("World units the cube drifts away from the sculpture centre while collapsing. " +
+                 "Keep small — this is a nudge that reveals what was behind it, not a launch.")]
+        public float popRise = 0.18f;
+        [Tooltip("How far the cube flashes toward white as it swells.")]
+        [Range(0f, 1f)] public float popFlash = 0.85f;
+        [Tooltip("Degrees of tumble over the whole pop. Cheap extra life; 0 disables it.")]
+        public float popSpin = 70f;
+
+        [Header("Shockwave ring (the ONLY thing a destroy spawns)")]
+        [Tooltip("Seconds the ring takes to expand and fade out.")]
+        [Range(0.05f, 0.6f)] public float shockwaveTime = 0.22f;
+        public float shockwaveStartSize = 0.6f;
+        [Tooltip("Ring diameter at the end, in world units. Around 3x the start reads as a snap; " +
+                 "much larger and it drifts across neighbouring cubes as a halo.")]
+        public float shockwaveEndSize = 1.7f;
+        [Range(0f, 1f)] public float shockwaveAlpha = 0.72f;
+        [Tooltip("World units the ring is pushed along the view ray toward the camera. WITHOUT " +
+                 "this the ring spawns level with the cube it replaces and the surrounding cubes " +
+                 "z-cull it — measured: completely invisible on anything but an isolated block. " +
+                 "Roughly half a voxel is enough to clear the surface it sits on.")]
+        public float shockwaveCameraLift = 0.5f;
+        [Tooltip("How far the ring is bleached toward white from the cube's colour. Fully white " +
+                 "loses the link to which block was hit; fully coloured disappears on same-colour cubes.")]
+        [Range(0f, 1f)] public float shockwaveWhiten = 0.55f;
+        [Tooltip("Size of the pre-instantiated ring pool. Rings are reused oldest-first and never " +
+                 "allocate at runtime, so this is a hard ceiling on simultaneous rings.")]
+        public int shockwaveMaxActive = 16;
 
         [Header("Guns")]
         public int gunSlotCount = 4;
-        public float gunFireInterval = 0.16f;   // seconds between darts from one gun
+        public float gunFireInterval = 0.16f;
         public float gunSlotSpacing = 1.35f;
         public float gunSlotY = 0f;
         public float gunSlotZ = -2.6f;
-        // Ceiling on a deployed gun's tint brightness. Gun tints are applied through a
-        // MaterialPropertyBlock, which REPLACES _BaseColor rather than multiplying it, so the
-        // material itself cannot hold headroom — without this cap the white color slot (~0.97,
-        // pushed to pure white by the lighter dome/tube lerps) clipped to a featureless blob.
         [Range(0.4f, 1f)] public float gunTintMaxValue = 0.80f;
 
+        [Header("Cannon shape (own meshes — independent of the voxel bevel)")]
+        [Range(0.05f, 0.49f)] public float gunBodyRadius = 0.26f;
+        [Range(2, 8)] public int gunBodySegments = 5;
+        [Tooltip("Body proportions (width, height, depth) in slot units.")]
+        public Vector3 gunBodySize = new Vector3(0.92f, 0.80f, 0.94f);
+
+        [Tooltip("Barrel elevation in degrees above horizontal. 0 (level) is the current art " +
+                 "direction: it costs nothing in on-screen barrel length under the 75deg camera, but " +
+                 "the muzzle bore then faces away and is not visible in-game.")]
+        [Range(0f, 70f)] public float gunBarrelElevation = 0f;
+        [Range(0.2f, 1.2f)] public float gunBarrelLength = 0.41f;
+        [Range(0.08f, 0.4f)] public float gunBarrelRadius = 0.228f;
+
+        [Tooltip("Puck mesh (barrel tube / collar / bands): sides of the revolve and how much of " +
+                 "its radius is rolled into the rim fillet. A hard 90deg rim reads as machined " +
+                 "metal next to the moulded body.")]
+        [Range(6, 32)] public int gunPuckSides = 20;
+        [Range(0.02f, 0.49f)] public float gunPuckRim = 0.14f;
+
         [Header("Darts")]
-        public float dartSpeed = 22f;           // world units / second
+        public float dartSpeed = 22f;
         public float dartLife = 2f;
-        public float dartTrailTime = 0.26f;     // long white streaks
-        public float dartHitScatter = 0.0f;     // aim jitter
-        public float dartApproachOffset = 2.4f; // dart arc control point: this far in front of the target, toward the camera
+        public float dartTrailTime = 0.26f;
+        public float dartHitScatter = 0.0f;
+        public float dartApproachOffset = 2.4f;
 
         [Header("Bank")]
         public float bankSlotSpacing = 1.5f;
-        public float bankRowSpacing = 0.96f;  // depth step of the queue: queued rows sit flush
-                                              // behind the playable row, on the same ground plane
-        public float bankY = 0f;      // bank plane height — matches gunSlotY so bank & slots are coplanar
+        public float bankRowSpacing = 0.96f;
+        public float bankY = 0f;
         public float bankZ = -4.8f;
-        public int bankVisibleRows = 3;         // how many rows of blocks show per column
+        public int bankVisibleRows = 3;
 
-        [Header("Rotation (structure spins like a turntable)")]
-        public float autoRotateSpeed = 16f;      // deg/sec drift while idle
-        public float rotateSensitivity = 0.3f;   // deg per pixel of horizontal drag
-        public float autoRotateDelay = 1.6f;     // idle seconds before auto-rotate resumes
+        [Header("Rotation (drag only — the structure never spins by itself)")]
+        public float rotateSensitivity = 0.3f;
 
         [Header("Camera")]
-        public bool cameraOrthographic = false;  // art doc: 3/4 view with slight perspective
-        public float cameraPitch = 75f;          // downward tilt; near top-down board view (user preference)
-        public float cameraFov = 32f;            // narrow FOV = near-isometric, low distortion (art doc: 25-40°)
-        public float cameraFitBottomY = -5.2f;   // world Y of the bottom of the framed area (covers bank rows projected low by the pitch)
+        public bool cameraOrthographic = false;
+        public float cameraPitch = 75f;
+        public float cameraFov = 32f;
+        public float cameraFitBottomY = -5.2f;
 
         [Header("Feel / Timing")]
         public float winPopupDelay = 0.7f;
         public float cameraFitPadding = 1.06f;
-        public float shakeOnHit = 0.045f;   // subtle per-destroy camera shake (0 = off)
+        public float shakeOnHit = 0f;
 
         [Header("Toon shading (Toony Colors Pro 2 Hybrid — the game's only surface shader)")]
-        public Color toonHighlight = new Color(0.98f, 0.96f, 0.93f);   // _HColor: lit-side tint (sub-1 so whites never burn)
-        // _SColor is near-NEUTRAL on purpose: it must darken the base color without dragging its
-        // hue. A saturated (purple) shadow turns green into teal and red into magenta-brown, and a
-        // hue that shifts under shadow is the #1 cue the brain reads as "light is passing through"
-        // — i.e. translucent jelly, not opaque plastic.
-        public Color toonShadow = new Color(0.52f, 0.49f, 0.56f);      // _SColor: barely-cool neutral — darkens, never re-hues
-        [Range(0.01f, 1f)] public float toonRampThreshold = 0.44f;     // side faces fall partly into the shadow tint so form reads (white mats hand-hold their own values)
-        [Range(0f, 1f)] public float toonRampSmoothing = 0.38f;        // enough gradient for the bevel to read as a rounded edge; past ~0.5 the wrap reads as subsurface wax
-        [Range(0.001f, 1f)] public float toonSpecSize = 0.25f;         // stylized specular: small...
-        [Range(0f, 1f)] public float toonSpecSmoothing = 0.45f;        // ...and defined — tight plastic gloss, not a broad waxy sheen
-        // Must stay DIM. Voxel faces are flat, so a toon specular lobe covers an entire face at
-        // once instead of making a small highlight — the term is added uniformly across the whole
-        // surface. At 0.80 that pushed lit red faces to ~(1.57,0.94,0.84), i.e. clipped to white
-        // (7.1% of warm pixels blown). 0.18 keeps a plastic sheen at 0.4% blown. The gloss read on
-        // flat faces has to come from the EdgeSheen gradient, NOT from specular.
-        public Color toonSpecColor = new Color(0.18f, 0.175f, 0.165f); // gentle sheen — never a face-wide white wash
+        public Color toonHighlight = new Color(0.90f, 0.84f, 0.78f);
+        public Color toonShadow = new Color(0.44f, 0.38f, 0.42f);
+        [Range(0.01f, 1f)] public float toonRampThreshold = 0.49f;
+        [Range(0f, 1f)] public float toonRampSmoothing = 0.22f;
+        [Range(0.001f, 1f)] public float toonSpecSize = 0.20f;
+        [Range(0f, 1f)] public float toonSpecSmoothing = 0.32f;
+        public Color toonSpecColor = new Color(0.20f, 0.17f, 0.15f);
 
         [Header("Post-processing (kept subtle per art doc)")]
         public bool postProcessing = true;
-        public float postBloomIntensity = 0.10f;   // very light bloom (threshold 1.3 in PostFX.asset — highlights must not glow)
-        public float postVignette = 0.12f;         // light vignette
-        // CEILING, not a taste knob: past ~10 the grade drives a channel to 0 on the saturated
-        // voxels (green hit R=0 at sat 20, and 43% of green pixels already clipped at the old 12).
-        // A pixel with one channel pinned at 0 reads as glowing gel, never as opaque plastic.
-        // Get richness from the palette + lighting; verify with the clip check in CLAUDE.md.
-        public float postSaturation = 8f;          // keeps faces vivid without crushing a channel to zero
-        public float postContrast = 5f;            // gentle — contrast also spreads channels apart
-        public float postExposure = 0f;            // no lift — the toon ramp already reads bright
+        public float postBloomIntensity = 0.055f;
+        public float postVignette = 0.13f;
+        public float postSaturation = 13f;
+        public float postContrast = 10f;
+        public float postExposure = 0f;
+
+        [Header("Backdrop (baked radial gradient quad behind the sculpture)")]
+        [Tooltip("How much brighter the centre of the backdrop is than the screen edge, as a " +
+                 "fraction. The brief calls for a 5-10% lift — enough to stop the navy reading as " +
+                 "flat paper, small enough that it never competes with the sculpture.")]
+        [Range(0f, 0.35f)] public float bgGradientStrength = 0.09f;
+        [Tooltip("Radius of the bright core as a fraction of the backdrop, 0.5 = touches the edges.")]
+        [Range(0.15f, 1.2f)] public float bgGradientRadius = 0.62f;
+        [Tooltip("Extra blue richness in the backdrop core vs the flat background colour. " +
+                 "0 = pure luminance gradient.")]
+        [Range(0f, 0.4f)] public float bgGradientTint = 0.10f;
+
+        [Header("Ambient occlusion (seeds for the URP SSAO renderer feature)")]
+        [Range(0f, 3f)] public float aoIntensity = 0.95f;
+        [Range(0.05f, 1f)] public float aoRadius = 0.20f;
+        [Range(0f, 1f)] public float aoDirectStrength = 0.25f;
 
         [Header("Scoring")]
         public int coinsPerLevel = 20;

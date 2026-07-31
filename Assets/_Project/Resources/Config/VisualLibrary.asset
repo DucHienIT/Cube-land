@@ -41,11 +41,8 @@ MonoBehaviour:
     - {fileID: 2100000, guid: b0813faff2689984fa3140ecf9564aba, type: 2}
     - {fileID: 2100000, guid: 34d175b42636c5540b7141d6fedb0a88, type: 2}
     - {fileID: 2100000, guid: a9210cf3e586bd14eac1df37562d5bf7, type: 2}
+  backdrop: {fileID: 2100000, guid: 5c50a59b07ac85e48bfb41ab777364dd, type: 2}
   slotPad: {fileID: 2100000, guid: 5e78cb96b2de79e4d888286644f5581b, type: 2}
   dartBullet: {fileID: 2100000, guid: 744b93654d3ad2b48ae51ee49aa95986, type: 2}
   dartTrail: {fileID: 2100000, guid: 647a0a08a61966a45ad3f988e9f87e63, type: 2}
-  fxBurst: {fileID: 6390261863883648756, guid: 70b2fae3a96521a4982f4c9a66b1be7f, type: 3}
-  fxShards: {fileID: 8015950293737819933, guid: d3720d8578f77e84d96ee95f76b77cc9, type: 3}
-  fxFlash: {fileID: 3615153405164750104, guid: 42e13ac3bb72ebb4e82dd5f4a3f5f49e, type: 3}
-  fxRing: {fileID: 5023083556719337618, guid: 5bacc4c43d966704f94446620440a9c8, type: 3}
-  debrisPrefab: {fileID: 7258436631997892611, guid: 5968f1b7831b6cc4ba9ef6759fc329d5, type: 3}
+  shockwavePrefab: {fileID: 629296266921216031, guid: a2d46fade0471204eab6ad04dab4b1b9, type: 3}
