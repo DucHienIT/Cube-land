@@ -58,7 +58,10 @@ namespace CubeBlaster
         public Color gunBody = new Color(0.92f, 0.28f, 0.58f);
         public Color gunBodyAlt = new Color(0.56f, 0.36f, 0.87f);
         public Color dartColor = new Color(1f, 1f, 1f);
-        public Color dartTrail = new Color(1f, 1f, 1f, 0.85f);
+        // Alpha only — the rgb comes from the dart's own tint. The trail material is
+        // Sprites/Default (premultiplied blend), so a near-opaque white streak renders close to
+        // additive and blows out over the sculpture; 0.55 keeps it a highlight.
+        public Color dartTrail = new Color(1f, 1f, 1f, 0.55f);
 
         [Header("Bank blocks (by value band, light to dark)")]
         public Color[] bankBands = {

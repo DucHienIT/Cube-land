@@ -25,18 +25,26 @@ namespace CubeBlaster.EditorTools
         const string ScenePath = "Assets/_Project/Scenes/Game.unity";
         const string FontPath = "Assets/TextMesh Pro/Resources/Fonts & Materials/LiberationSans SDF.asset";
 
-        const float LabelFaceDilate = 0.02f;
-        const float LabelOutlineWidth = 0.12f;
-        static readonly Color LabelOutlineColor = new Color(0.075f, 0.098f, 0.184f, 1f);
-        static readonly Color LabelShadowColor = new Color(0.055f, 0.075f, 0.145f, 0.55f);
-        static readonly Vector2 BankLabelFit = new Vector2(0.72f, 0.72f);
-        const float BankLabelSize = 0.105f;
+        // The number is always warm white (ColorTools.LabelInk) and a heavy dark outline is what
+        // separates it from the block, on every palette colour. Face dilate fattens the glyph
+        // itself, so it stays modest — a TMP outline grows partly INWARD, and without some
+        // dilate a thick one thins the white face to nothing. Dilate is what closes the
+        // counters in 8/9/0, which is why the ratio here is deliberately outline-heavy
+        // (a 2026-07-31 pass had to walk back dilate 0.08 for exactly that reason).
+        const float LabelFaceDilate = 0.06f;
+        const float LabelOutlineWidth = 0.30f;
+        static readonly Color LabelOutlineColor = new Color(0.055f, 0.072f, 0.145f, 1f);
+        static readonly Color LabelShadowColor = new Color(0.04f, 0.055f, 0.11f, 0.7f);
 
-        // Ammo is three digits now that a bank block carries 70-220 darts, so the gun label
-        // auto-sizes against the body face exactly like the bank block does. A fixed size can
-        // only ever be right for one digit count.
-        static readonly Vector2 GunLabelFit = new Vector2(0.62f, 0.50f);
-        const float GunLabelSize = 0.070f;
+        // The rect sizes the multi-digit case (auto-size shrinks to fit it); the max sizes the
+        // single-digit case (auto-size never grows past it). Both rects are well inside their
+        // face because the OUTLINE RENDERS OUTSIDE THE LAYOUT BOUNDS — at 0.30 it adds roughly
+        // a fifth again on each side, so a rect matched to the block face overhangs it. Measured
+        // against the block: 0.52 in a 0.92 face lands the drawn number at ~0.65 of it.
+        static readonly Vector2 BankLabelFit = new Vector2(0.52f, 0.52f);
+        const float BankLabelSize = 0.115f;
+        static readonly Vector2 GunLabelFit = new Vector2(0.50f, 0.40f);
+        const float GunLabelSize = 0.080f;
         const float LabelAutoSizeMin = 0.5f;
 
         static bool _force;
@@ -150,6 +158,8 @@ namespace CubeBlaster.EditorTools
             }
             Texture2D ringTex = BakeTexture(TexDir + "/FxRing.png", 64, RingPixel, mipmaps: true,
                 alwaysRebuild: true);
+            Texture2D dotTex = BakeTexture(TexDir + "/DartDot.png", 64, DotPixel, mipmaps: true,
+                alwaysRebuild: true);
 
             var voxelSets = new List<VisualLibrary.MaterialSet>();
             for (int set = 0; set < 4; set++) voxelSets.Add(BakeVoxelMaterialSet(set, edgeTex));
@@ -180,11 +190,17 @@ namespace CubeBlaster.EditorTools
                 m.SetFloat("_ZWrite", 0f);
                 m.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Background;
             });
+            // The bullet is a camera-facing DOT, not a sphere. It was the built-in sphere at 768
+            // triangles, on an unlit material — so the geometry bought literally no shading — and
+            // four guns keep ~90 darts in the air, which is 69k triangles for balls that render a
+            // handful of pixels wide, nearly 3x the whole sculpture. Always re-applied because
+            // the shader has to match the mesh the prefab uses.
             Material dartBullet = BakeMaterial(MatDir + "/DartBullet.mat", m =>
             {
-                m.shader = Shader.Find("Universal Render Pipeline/Unlit");
+                m.shader = Shader.Find("Sprites/Default");
+                m.mainTexture = dotTex;
                 SetBaseColor(m, Color.white);
-            });
+            }, alwaysApply: true);
             Material dartTrail = BakeMaterial(MatDir + "/DartTrail.mat", m =>
             {
                 m.shader = Shader.Find("Sprites/Default");
@@ -210,7 +226,7 @@ namespace CubeBlaster.EditorTools
             Shockwave shockwave = BakeShockwavePrefab(quad, fxRing);
 
             BakeVoxelCubePrefab(unitCube, voxelSets[0].colors[0]);
-            BakeDartPrefab(sphere, dartBullet, dartTrail);
+            BakeDartPrefab(quad, dartBullet, dartTrail);
             BakeGunPrefab(rounded, gunBody, gunPuck, gunPart, gunHole, font, labelMat);
             BakeGunSlotPrefab(rounded, slotPad, gunHole);
             BakeBankBlockPrefab(rounded, voxelSets[0].colors[0], font, labelMat);
@@ -519,6 +535,15 @@ namespace CubeBlaster.EditorTools
         static float _bgStrength, _bgRadius, _bgTint;
         static Color _bgBase = new Color(0.149f, 0.231f, 0.396f);
 
+        /// Solid white core with a soft rim — the dart bullet, drawn on a camera-facing quad.
+        static Color32 DotPixel(float u, float v)
+        {
+            float dx = u - 0.5f, dy = v - 0.5f;
+            float d = Mathf.Sqrt(dx * dx + dy * dy) * 2f;
+            float a = Mathf.SmoothStep(1f, 0f, Mathf.InverseLerp(0.70f, 1f, d));
+            return new Color32(255, 255, 255, (byte)(a * 255f));
+        }
+
         static Color32 RingPixel(float u, float v)
         {
             float dx = u - 0.5f, dy = v - 0.5f;
@@ -528,10 +553,13 @@ namespace CubeBlaster.EditorTools
             return new Color32(255, 255, 255, (byte)(a * 255f));
         }
 
-        static Material BakeMaterial(string path, System.Action<Material> setup)
+        /// `alwaysApply` is for materials whose settings are DERIVED, not hand-tuned art — the
+        /// same reasoning as RoundedCube.asset and NumberLabel.mat. Without it a setup change
+        /// only lands on a Force Rebake All, which resets every other material to defaults.
+        static Material BakeMaterial(string path, System.Action<Material> setup, bool alwaysApply = false)
         {
             var existing = AssetDatabase.LoadAssetAtPath<Material>(path);
-            if (existing != null && !_force) return existing;
+            if (existing != null && !_force && !alwaysApply) return existing;
             if (existing != null)
             {
                 setup(existing);
@@ -858,7 +886,7 @@ namespace CubeBlaster.EditorTools
             });
         }
 
-        static void BakeDartPrefab(Mesh sphere, Material bulletMat, Material trailMat)
+        static void BakeDartPrefab(Mesh quad, Material bulletMat, Material trailMat)
         {
             EditPrefab(PrefabDir + "/Dart.prefab", root =>
             {
@@ -868,18 +896,26 @@ namespace CubeBlaster.EditorTools
                 if (trail == null) trail = root.AddComponent<TrailRenderer>();
                 trail.sharedMaterial = trailMat;
                 trail.time = GameConfig.Active.dartTrailTime;
-                trail.startWidth = 0.2f;
+                trail.startWidth = GameConfig.Active.dartTrailWidth;
                 trail.endWidth = 0f;
                 trail.numCapVertices = 4;
                 trail.numCornerVertices = 2;
                 trail.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
                 trail.receiveShadows = false;
 
-                var bullet = AddMeshChild(root.transform, "Bullet", sphere, bulletMat,
+                var bullet = AddMeshChild(root.transform, "Bullet", quad, bulletMat,
                     Vector3.zero, Quaternion.identity, Vector3.one * 0.22f);
                 var mr = bullet.GetComponent<MeshRenderer>();
                 mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
                 mr.receiveShadows = false;
+                mr.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
+                mr.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
+
+                // Dart.Initialize aims the ROOT along the muzzle so the trail streaks correctly;
+                // the bullet is billboarded independently so the dot always faces the camera.
+                var billboard = bullet.GetComponent<Billboard>();
+                if (billboard == null) billboard = bullet.AddComponent<Billboard>();
+                billboard.towardCamera = 0f;
 
                 var dart = root.GetComponent<Dart>();
                 SetRef(dart, "trail", trail);
@@ -931,7 +967,12 @@ namespace CubeBlaster.EditorTools
                 tip.SetParent(barrel, false);
                 tip.localPosition = new Vector3(0f, 0f, bl * 1.10f);
 
-                var nub = AddMeshChild(rig, "Nub", gunBody, gunPart,
+                // Cheap mesh, not gunBody: the nub is a ~0.2-unit tab that renders around 20px,
+                // and gunBody is the 1452-triangle high-bevel mesh — a third of the whole cannon's
+                // geometry for something whose bevel is sub-pixel. (The BODY is the piece that
+                // uses roundedCube, which is the reverse of what the mesh names suggest; left
+                // alone because changing it changes the cannon's silhouette.)
+                var nub = AddMeshChild(rig, "Nub", roundedCube, gunPart,
                     new Vector3(0f, bodyY - size.y * 0.26f, -size.z * 0.5f - 0.04f), Quaternion.identity,
                     new Vector3(size.x * 0.24f, size.y * 0.20f, 0.12f));
 

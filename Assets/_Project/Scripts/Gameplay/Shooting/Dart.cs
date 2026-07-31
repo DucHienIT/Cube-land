@@ -45,7 +45,7 @@ namespace CubeBlaster
             transform.position = startPosition;
             transform.up = _muzzleDirection;
 
-            ApplyTint(tint, config.dartTrailTime);
+            ApplyTint(tint, config.dartTrailTime, config.dartTrailWidth);
         }
 
         void Update()
@@ -106,14 +106,17 @@ namespace CubeBlaster
                 : (_start - _target).normalized;
         }
 
-        void ApplyTint(Color tint, float trailTime)
+        void ApplyTint(Color tint, float trailTime, float trailWidth)
         {
             Color bullet = Color.Lerp(tint, Color.white, BulletWhitening);
             if (trail != null)
             {
                 Color head = new Color(bullet.r, bullet.g, bullet.b, PaletteConfig.Active.dartTrail.a);
                 trail.Clear();
+                // Applied per dart, not just baked into the prefab, so the streak can be retuned
+                // from GameConfig without re-running the baker.
                 trail.time = trailTime;
+                trail.startWidth = trailWidth;
                 trail.startColor = head;
                 trail.endColor = new Color(head.r, head.g, head.b, 0f);
             }

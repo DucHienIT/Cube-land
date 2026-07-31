@@ -78,7 +78,7 @@ namespace CubeBlaster
         void ApplyTint(Color color)
         {
             Color tint = ColorTools.ClampBrightness(color, GameConfig.Active.gunTintMaxValue);
-            if (label != null) label.color = ColorTools.LabelInk(tint);
+            if (label != null) label.color = ColorTools.LabelInk;
             _tinter.Apply(bodyRenderer, tint);
             _tinter.Apply(partRenderers, tint);
         }

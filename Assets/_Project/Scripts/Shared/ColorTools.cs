@@ -4,18 +4,16 @@ namespace CubeBlaster
 {
     public static class ColorTools
     {
-        public static readonly Color InkDark = new Color(0.106f, 0.153f, 0.278f, 1f);
-        public static readonly Color InkLight = new Color(1f, 0.99f, 0.96f, 1f);
+        /// Ammo numbers are ALWAYS this warm white, on every block colour. Contrast comes from
+        /// the heavy dark outline baked into NumberLabel.mat, not from re-colouring the glyph.
+        /// This replaced a luminance switch that flipped to navy ink above 0.62 — it kept the
+        /// number readable but made the bank read as two different label styles depending on
+        /// which colours a level happened to use.
+        public static readonly Color LabelInk = new Color(1f, 0.99f, 0.96f, 1f);
 
-        const float InkSwitchLuminance = 0.62f;
         const int JitterSteps = 5;
 
         public const int JitterVariants = 3;
-
-        public static float Luminance(Color c) => 0.299f * c.r + 0.587f * c.g + 0.114f * c.b;
-
-        public static Color LabelInk(Color background) =>
-            Luminance(background) > InkSwitchLuminance ? InkDark : InkLight;
 
         public static Color ClampBrightness(Color c, float maxChannel)
         {

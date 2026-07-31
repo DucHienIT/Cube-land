@@ -130,8 +130,8 @@ orchestrator owes each feature.
   (`voxelSets[set].colors[slot]`) and their per-block jitter variants
   (`voxelSets[set].jitter[slot * ColorTools.JitterVariants + variant]`), fixed materials
   (slotPad/dartBullet/dartTrail), the Shockwave prefab. The colour *policy* it used to carry moved to
-  `Shared/ColorTools` (`Jitter`/`PickJitterVariant` = quantized per-block variation, `LabelInk`,
-  `ClampBrightness`) and `Shared/RendererTinter` (the MaterialPropertyBlock helper — props are
+  `Shared/ColorTools` (`Jitter`/`PickJitterVariant` = quantized per-block variation, `LabelInk` =
+  the one ink every ammo number uses, `ClampBrightness`) and `Shared/RendererTinter` (the MaterialPropertyBlock helper — props are
   tinted via MPB so shared .mat assets are never instanced/modified; the block is created lazily
   because Unity forbids native objects in MonoBehaviour field initializers. `Clear` puts a renderer
   back in the SRP batch and is what keeps the voxels there — see the Density pass).
@@ -392,9 +392,9 @@ juicier feedback. What it changed and *why* (all verified by pixel measurement, 
 7. **`SlotPad.mat` / `GunHole.mat` hit the flat-face specular trap** (same as the voxels: a toon
    spec lobe covers a whole flat face at once and is added uniformly). Their spec is now ~0.03 and
    their `_HColor` is cool, or the sockets drift to warm grey `(0.400,0.369,0.345)`.
-8. **Number text contrast**: `ColorTools.LabelInk(blockColor)` picks navy ink above Rec.601
-   luminance 0.62, warm white below. The white ammo block previously rendered white-on-white and was
-   literally unreadable. Used by `BankBlock.SetRow` (playable + dimmed rows) and `Gun.ApplyTint`.
+8. **Number text contrast**: `ColorTools.LabelInk` was a luminance switch here (navy ink above
+   Rec.601 0.62, warm white below) because the white ammo block rendered white-on-white and was
+   literally unreadable. Superseded by the Outlined-number pass below — it is now a constant.
 
 **Number legibility pass (2026-07-31).** User: *"hình ảnh của các text số trên bank đang không ổn."*
 The bank digits were fat, soft and low-contrast. Four causes, all fixed in
@@ -418,6 +418,69 @@ The bank digits were fat, soft and low-contrast. Four causes, all fixed in
    derived policy, not hand-tuned art — under the old skip, none of the above would land without a
    Force Rebake All (which resets every other material to defaults). Same reasoning as
    `RoundedCube.asset`.
+
+**Dart-geometry pass (2026-07-31).** User: *"khi đặt các bank lên slot để bắn các khối cube thì số
+lượng tris tăng lên, check vì sao?"* Measured on level 30: **72k triangles at rest, 173k mid-barrage**
+(2.4x). Where the extra 101k came from, and what it says about where to look next:
+- **~69k of it was the dart bullets.** The bullet was Unity's built-in `New-Sphere.fbx` at **768
+  triangles**, and four guns at `gunFireInterval` 0.03 keep **~90 darts in the air** (133/s × ~0.65s
+  of flight). That is **2.6x the entire 2179-cube sculpture** (26k tris) for balls that render a
+  handful of pixels wide — and the material is `URP/Unlit`, so the geometry bought no shading
+  whatsoever. Now a **billboarded quad: 2 triangles**, `Sprites/Default` + a baked `DartDot.png`
+  (solid core, soft rim — same trick the shockwave ring already used). 69,120 → 180 tris.
+  `Dart.Initialize` still aims the ROOT along the muzzle so the trail streaks correctly; the
+  `Billboard` sits on the bullet child so the dot faces the camera independently. Scale went
+  0.22 → 0.26 to compensate for the dot's soft rim.
+- **~16k was the four guns themselves**, spawned by the deploy. Per gun the `Nub` — a ~0.2-unit tab
+  on the back that renders about 20px — was using `GunBody.asset` at **1452 triangles**, a third of
+  the whole cannon, for a bevel that is sub-pixel at that size. Now `roundedCube`: gun 4046 → 3176.
+  **The BODY meanwhile uses `roundedCube` while the mesh named `gunBody` went to the nub** — the
+  reverse of what the names suggest. Left alone deliberately: `gunBodyRadius` 0.26 vs
+  `voxelCornerRadius` 0.16 means swapping it changes the cannon's silhouette, and the current one
+  has been through several user art reviews.
+- Measured after: **103k tris at 100 darts**, against 173k at 90 before.
+- **What did NOT cause it**, checked and ruled out: the sculpture barely moves (2071 → 2179
+  renderers as craters expose buried cubes), and the shockwave rings are 2-triangle quads.
+- Remaining cost is **draw calls, not triangles**: each dart is a bullet renderer with a
+  MaterialPropertyBlock (so, outside the SRP Batcher) plus a TrailRenderer, i.e. ~200 extra draws at
+  100 darts — that is what takes setPass from 61 to ~200. Pool the darts and tint them with baked
+  materials if that ever needs to come down.
+
+**Dart-streak pass (2026-07-31, follow-up).** User: *"trail của viên đạn đang hơi đậm và hơi dài."*
+It was a regression from the density pass: **the streak's length is `dartTrailTime * dartSpeed`, and
+raising `dartSpeed` 22 → 28 lengthened it without anyone touching the time.** At 0.26s that is 7.3
+world units against a sculpture only ~8 wide — every dart's trail reached from muzzle to target, and
+with ~90 darts up they merged into solid white ribbons over the object.
+- `dartTrailTime` 0.26 → **0.11** (3.1 units), `dartTrail` alpha 0.85 → **0.55** (the trail material
+  is `Sprites/Default`, a premultiplied blend, so near-opaque white renders close to additive).
+- `dartTrailWidth` is a **new GameConfig knob** — it was hardcoded 0.2 in the baker, which is
+  exactly the "never hardcode tunables" rule. It is applied per dart in `Dart.ApplyTint`, not only
+  baked into the prefab, so the streak can be retuned without re-running the baker.
+- **Width has a narrow band, found by A/B.** First try was 0.12 against a 0.26 bullet and the stream
+  read as a *dotted chain* — the dots dominated their own tails. Now width 0.16 against a 0.22
+  bullet, which reads as tracer fire. Matching them exactly goes the other way: a ribbon with a bead
+  stuck on the end.
+
+**Outlined-number pass (2026-07-31).** User supplied a reference screenshot of the genre's bank and
+asked for its text treatment. It is the standard casual-game one and it supersedes points 1-3 above:
+**one white number with a heavy dark outline, on every block colour**, rather than an ink that
+flips with the block's brightness.
+1. **`ColorTools.LabelInk` is a CONSTANT now, not a function of the background** (warm white
+   `(1, 0.99, 0.96)`). The luminance switch kept every number readable but made the bank read as two
+   different label styles depending on which palette a level happened to use — a level with white
+   voxels showed navy digits next to white ones. Contrast is the outline's job. `Luminance` went
+   with it; it had no other caller.
+2. **`NumberLabel.mat`: outline 0.12 → 0.30, face dilate 0.02 → 0.06.** The ratio is deliberately
+   outline-heavy: dilate fattens the glyph itself and is what closes the counters in 8/9/0 (point 1
+   above had to walk back dilate 0.08 for exactly that), while the outline grows mostly outward. But
+   a TMP outline also eats *inward*, so some dilate is needed or a thick outline thins the white
+   face to nothing.
+3. **Label rects had to SHRINK even though the numbers got bigger**, because the outline renders
+   outside the layout bounds — at 0.30 it adds roughly a fifth again on each side, so a rect matched
+   to the block face overhangs it. First attempt used the full 0.74 rect and the digits visibly hung
+   over the block edges. Now `BankLabelFit` 0.52 in a 0.92 face (drawn number lands at ~0.65 of it),
+   `GunLabelFit` 0.50 × 0.40. The size constants are the *single-digit* cap; the rect is what sizes
+   the two-digit case, since auto-size only shrinks.
 
 **Cannon shape pass (2026-07-21).** The cannon started as a voxel-bevelled box + a squashed sphere +
 a barrel stub ("a box with a lump"), then became one smooth tapered capsule — which the user still
@@ -465,7 +528,8 @@ fat stub protruding 0.34 past the body face rather than a long tube. What was le
 8. **Do NOT offset the ammo label by -Z to "put it on the front face".** Under a steep pitch a -Z
    offset projects *downward* on screen and parks the number under the cannon. The label sits over the
    body centre and `Billboard.towardCamera` (0.80) pulls it out along the view ray — the same
-   mechanism the bank blocks use. Label size 0.066, or a two-digit count overhangs the body.
+   mechanism the bank blocks use. The size was a hand-tuned 0.066 that only suited one digit count;
+   it auto-sizes against `GunLabelFit` now — see the Outlined-number pass.
 Verified in Play mode: darts leave the muzzle on their arc and 92/150 voxels fell in a normal-speed
 run with four guns.
 
@@ -489,9 +553,10 @@ reading duller than the red. Voxel palettes are the
 art-doc swatches (red `#C93620`/orange `#FF7543`/green `#32C76A`/purple/yellow + warm white
 `#FFF5E8` slot 4, dark ink slot 5). Cannons are a toy field-cannon tinted with the gun's color — a
 rounded-box body with a banded barrel running level toward the sculpture (+Z) and a big ammo number
-over the body (see the Cannon shape pass). Darts are near-white spheres with long bright
-`TrailRenderer` streaks; destruction is a **cube pop + one shockwave ring** and nothing else — see
-the Pop pass below for what replaced the old layered particle/debris stack.
+over the body (see the Cannon shape pass). Darts are near-white **billboarded dots** with long
+bright `TrailRenderer` streaks — see the Dart-geometry pass; destruction is a **cube pop + one
+shockwave ring** and nothing else — see the Pop pass below for what replaced the old layered
+particle/debris stack.
 Bank queue rows behind row 0 render with a grayed-out cube but a **full-contrast number**
 (`BankBlock.SetRow`) — see the Number legibility pass.
 

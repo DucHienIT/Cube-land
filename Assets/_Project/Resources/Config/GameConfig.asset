@@ -64,7 +64,8 @@ MonoBehaviour:
   gunPuckRim: 0.14
   dartSpeed: 28
   dartLife: 2
-  dartTrailTime: 0.26
+  dartTrailTime: 0.11
+  dartTrailWidth: 0.16
   dartHitScatter: 0
   dartApproachOffset: 2.4
   bankSlotSpacing: 1.5

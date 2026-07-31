@@ -69,7 +69,7 @@ namespace CubeBlaster
             if (label == null) return;
 
             label.gameObject.SetActive(true);
-            label.color = ColorTools.LabelInk(_tint);
+            label.color = ColorTools.LabelInk;
         }
 
         public void PunchScale(float amount, float duration)

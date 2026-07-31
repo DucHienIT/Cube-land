@@ -138,7 +138,17 @@ namespace CubeBlaster
         [Header("Darts")]
         public float dartSpeed = 28f;
         public float dartLife = 2f;
-        public float dartTrailTime = 0.26f;
+        [Tooltip("Seconds of streak behind a dart. This is NOT the length you see — that is " +
+                 "dartTrailTime * dartSpeed in world units, against a sculpture only ~8 units " +
+                 "wide, so it has to move whenever dartSpeed does. At 0.26 with the current " +
+                 "speed the streak was 7.3 units, i.e. the whole flight path, and read as a rope " +
+                 "rather than a streak.")]
+        public float dartTrailTime = 0.11f;
+        [Tooltip("Width at the head; it tapers to nothing. Keep it a little under the bullet dot " +
+                 "(0.22): matched too closely and each dart reads as a ribbon with a bead stuck " +
+                 "on the end, far under and the stream of darts reads as a dotted chain rather " +
+                 "than tracer fire.")]
+        public float dartTrailWidth = 0.16f;
         public float dartHitScatter = 0.0f;
         public float dartApproachOffset = 2.4f;
 
