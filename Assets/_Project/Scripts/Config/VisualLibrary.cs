@@ -17,6 +17,13 @@ namespace CubeBlaster
         public class MaterialSet
         {
             public Material[] colors;
+
+            [Tooltip("Per-block colour variation, baked as real materials instead of applied per " +
+                     "renderer. A MaterialPropertyBlock evicts its renderer from the SRP Batcher, " +
+                     "which at 1000-2000 voxels costs a full material bind per cube; distinct " +
+                     "materials of the same shader stay in one batch. Indexed " +
+                     "slot * ColorTools.JitterVariants + variant.")]
+            public Material[] jitter;
         }
 
         [Header("Voxel materials — [palette set][color slot]")]
@@ -35,15 +42,34 @@ namespace CubeBlaster
 
         public Material GetVoxelMaterial(int set, int slot)
         {
-            if (voxelSets == null || voxelSets.Length == 0) return null;
-            var materials = voxelSets[((set % voxelSets.Length) + voxelSets.Length) % voxelSets.Length];
+            var materials = GetSet(set);
             if (materials == null || materials.colors == null || materials.colors.Length == 0) return null;
             return materials.colors[Mathf.Clamp(slot, 0, materials.colors.Length - 1)];
         }
 
-        public Color GetVoxelColor(int set, int slot)
+        public Material GetVoxelMaterial(int set, int slot, int variant)
         {
-            var material = GetVoxelMaterial(set, slot);
+            var materials = GetSet(set);
+            int index = Mathf.Max(0, slot) * ColorTools.JitterVariants
+                        + Mathf.Clamp(variant, 0, ColorTools.JitterVariants - 1);
+            if (materials == null || materials.jitter == null || index >= materials.jitter.Length)
+                return GetVoxelMaterial(set, slot);
+            return materials.jitter[index] != null ? materials.jitter[index] : GetVoxelMaterial(set, slot);
+        }
+
+        public Color GetVoxelColor(int set, int slot) => ReadColor(GetVoxelMaterial(set, slot), set, slot);
+
+        public Color GetVoxelColor(int set, int slot, int variant) =>
+            ReadColor(GetVoxelMaterial(set, slot, variant), set, slot);
+
+        MaterialSet GetSet(int set)
+        {
+            if (voxelSets == null || voxelSets.Length == 0) return null;
+            return voxelSets[((set % voxelSets.Length) + voxelSets.Length) % voxelSets.Length];
+        }
+
+        static Color ReadColor(Material material, int set, int slot)
+        {
             if (material != null)
             {
                 if (material.HasProperty("_BaseColor")) return material.GetColor("_BaseColor");

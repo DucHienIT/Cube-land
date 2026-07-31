@@ -49,21 +49,39 @@ namespace CubeBlaster
             _blocks.Clear();
         }
 
+        /// The bank is a WINDOW onto the queue, not the whole queue. A level holds one block
+        /// per ~60 cubes — 49 early, 130+ late — and only `bankVisibleRows` of them fit under
+        /// the sculpture before the rows run off the bottom of the frame, so everything past
+        /// the window is deactivated. Blocks are parked exactly one row behind the window
+        /// rather than at their true row, so when the queue advances they slide forward into
+        /// it instead of popping in from wherever they would have been stacked.
         void Layout(bool snap)
         {
             var config = GameConfig.Active;
+            int visibleRows = Mathf.Max(1, config.bankVisibleRows);
+
             for (int i = 0; i < _blocks.Count; i++)
             {
-                int column = i % _columns;
+                var block = _blocks[i];
                 int row = i / _columns;
-                var home = new Vector3(
-                    (column - (_columns - 1) * 0.5f) * config.bankSlotSpacing,
-                    config.bankY,
-                    config.bankZ - row * config.bankRowSpacing);
+                Vector3 home = HomeFor(i % _columns, Mathf.Min(row, visibleRows), config);
 
-                _blocks[i].SetHome(home, snap);
-                _blocks[i].SetRow(row);
+                if (row >= visibleRows)
+                {
+                    block.SetHome(home, snap: true);
+                    block.gameObject.SetActive(false);
+                    continue;
+                }
+
+                block.gameObject.SetActive(true);
+                block.SetHome(home, snap);
+                block.SetRow(row);
             }
         }
+
+        Vector3 HomeFor(int column, int row, GameConfig config) => new Vector3(
+            (column - (_columns - 1) * 0.5f) * config.bankSlotSpacing,
+            config.bankY,
+            config.bankZ - row * config.bankRowSpacing);
     }
 }

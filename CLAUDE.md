@@ -14,7 +14,10 @@ procedural at runtime.
 
 A casual "ammo-shooter demolition" clone: numbered guns auto-fire darts at a procedural voxel
 sculpture; the number on a gun is its ammo; you drag numbered blocks from the bottom bank into
-empty gun slots to deploy shooters; demolish the whole sculpture to win. **Guns are color-locked**:
+empty gun slots to deploy shooters; demolish the whole sculpture to win. **A level is a SOLID
+sculpture of 3000-8000 cubes, of which only the ~1000-2900 currently exposed ones exist as
+GameObjects** (see the Density and Solid passes) — that scale is a hard constraint on everything
+below, not a tuning preference. **Guns are color-locked**:
 each bank block carries a voxel color, the deployed gun is tinted with it and only shoots/destroys
 cubes of that color (`GameManager.RequestTarget(color)` filters by `cell.ColorIndex`); a gun retires and
 frees its slot once no cube of its color remains, even with leftover ammo. Clones the *mechanic +
@@ -106,15 +109,17 @@ folders are for navigation, not for namespacing, so moving a file never forces a
 public surface `GameManager` implements, and reading them in one place is how you see what the
 orchestrator owes each feature.
 
-- `Core/` — pure logic, no MonoBehaviour, no `UnityEngine` beyond math/`Color`.
-  `LevelData` (JSON schema: voxels[] + bank[] + bankColors[] — color slot per bank block, parallel
-  to bank), `VoxelCell` (immutable grid cell: X/Y/Z/ColorIndex/Alive), `VoxelModel` (runtime
-  sculpture state + per-color alive counts + `VoxelDestroyed`/`AllCleared` events; implements
-  `IVoxelGrid`), `ExposedTargetSelector` (`ITargetSelector`: reservation + top-band reservoir pick,
-  filtered by an injected `IVoxelVisibility`), `TimeStarRule` (`IStarRule`), and the level-loading
-  chain: `LevelLibrary` (facade, `Use(...)`-swappable) → `ResourceLevelSource`
-  (`Resources/Levels/level_NNN.json`) → `ProceduralLevelSource` (fallback so it runs with no
-  content), with `BankColorAssigner` deriving `bankColors` greedily for legacy JSON without them.
+- `Core/` — pure logic, no MonoBehaviour, no `UnityEngine` beyond math/`Color`. (`Core/Level`'s
+  loading chain is the one deliberate exception: `LevelAsset` is a ScriptableObject and
+  `LevelAssetSource` calls `Resources.Load`, because level content IS project assets.)
+  `LevelData` (runtime shape: voxels[] + bank[] + bankColors[] — color slot per bank block,
+  parallel to bank), `VoxelCell` (immutable grid cell: X/Y/Z/ColorIndex/Alive), `VoxelModel`
+  (runtime sculpture state + per-color alive counts + `VoxelDestroyed`/`AllCleared` events;
+  implements `IVoxelGrid`), `ExposedTargetSelector` (`ITargetSelector`: reservation + top-band
+  reservoir pick, filtered by an injected `IVoxelVisibility`), `TimeStarRule` (`IStarRule`), and the
+  level-loading chain: `LevelLibrary` (facade, `Use(...)`-swappable) → `LevelAssetSource`
+  (`Resources/Levels/level_NNN.asset`) → `ProceduralLevelSource` (fallback so it runs with no
+  content).
 - `Config/` — `GameConfig` + `PaletteConfig` + `VisualLibrary` ScriptableObjects. Accessed via
   a static locator ON THE ASSET TYPE ITSELF — `GameConfig.Active`, `PaletteConfig.Active`,
   `VisualLibrary.Active`, each `Use(asset)`-overridable and all three backed by one generic
@@ -122,12 +127,14 @@ orchestrator owes each feature.
   no separate `Cfg`/`Palette`/`Visuals` facade type any more. **Never hardcode tunables — add them
   here.**
   `VisualLibrary` is the hub of ALL baked visual assets and *only* that: per-palette voxel materials
-  (`voxelSets[set].colors[slot]`), fixed materials (slotPad/dartBullet/dartTrail), the four FX
-  Shockwave prefab. The colour *policy* it used to carry moved to
-  `Shared/ColorTools` (`Jitter` = quantized per-block variation, `LabelInk`/`LabelInkDim`,
-  `ClampBrightness`) and `Shared/RendererTinter` (the MaterialPropertyBlock helper — renderers are tinted
-  via MPB so shared .mat assets are never instanced/modified; the block is created lazily because
-  Unity forbids native objects in MonoBehaviour field initializers).
+  (`voxelSets[set].colors[slot]`) and their per-block jitter variants
+  (`voxelSets[set].jitter[slot * ColorTools.JitterVariants + variant]`), fixed materials
+  (slotPad/dartBullet/dartTrail), the Shockwave prefab. The colour *policy* it used to carry moved to
+  `Shared/ColorTools` (`Jitter`/`PickJitterVariant` = quantized per-block variation, `LabelInk`,
+  `ClampBrightness`) and `Shared/RendererTinter` (the MaterialPropertyBlock helper — props are
+  tinted via MPB so shared .mat assets are never instanced/modified; the block is created lazily
+  because Unity forbids native objects in MonoBehaviour field initializers. `Clear` puts a renderer
+  back in the SRP batch and is what keeps the voxels there — see the Density pass).
 - `Gameplay/` — `GameBootstrap` (applies config, `[DefaultExecutionOrder(-100)]`), `GameManager`
   (orchestrator only: level flow, slot/dart spawning, win/stars/save. It implements `IGameFlow` +
   `IShooterContext` + `IDartContext` + `IBoardContext` and delegates the two hard policies —
@@ -215,7 +222,8 @@ exceptions (not surfaces): dart bullet (URP/Unlit, per baker), dart trail + shoc
 **Everything visual is a baked asset, nothing procedural at runtime.** `Tools ▸ Cube Blaster ▸
 Bake Visual Assets` (`Scripts/Editor/VisualAssetBaker.cs`) generates: the rounded-cube mesh
 (`Art/Meshes`), the EdgeSheen/FX textures (`Art/Textures`), all TCP2 materials seeded from
-GameConfig/PaletteConfig (`Art/Materials`, voxels in `Materials/Voxels/Voxel_S{set}_C{slot}.mat`),
+GameConfig/PaletteConfig (`Art/Materials`, voxels in `Materials/Voxels/Voxel_S{set}_C{slot}.mat`
+plus their jitter variants in `Materials/Voxels/Jitter/`),
 the Shockwave ring prefab (`Prefabs/Fx`), the visual subtrees +
 serialized refs of the gameplay prefabs, the PostFX VolumeProfile (`Art/PostFX.asset`), the scene
 "PostFX" Volume, and the `VisualLibrary.asset` wiring. Default bake keeps hand-edited asset values
@@ -253,8 +261,11 @@ gotcha:** the pack's embedded URP support predates `GetNormalizedScreenSpaceUV`,
 `_SCREEN_SPACE_OCCLUSION` shader variant fails to compile and everything renders flat cyan — SSAO
 MUST stay in **After Opaque** mode (set on the renderer feature) so that keyword never turns on.
 
-All cubes (voxels, bank blocks) share the baked RoundedCube mesh. **Current values (art pass
-2026-07-21): `voxelCornerRadius` 0.11, `voxelGap` 0.035**, `voxelRoundSegments` 3. This deliberately
+**Voxels render on Unity's built-in 12-triangle cube; the RoundedCube mesh now only dresses the
+props (gun slot rims, bank blocks) — see the Density pass.** Everything in this paragraph about
+the bevel therefore applies to the props, and the gap/jitter parts still apply to the voxels.
+**Current values: `voxelCornerRadius` 0.16, `voxelGap` 0.018** (halved with `voxelSize`, same 7%
+ratio), `voxelRoundSegments` 3. The gap deliberately
 reverses the earlier "gap 0 / radius 0.18" setting: at 0.18 the chamfer ate ~36% of the face and the
 blocks read as jelly/gumdrops rather than toy bricks, and with a tight bevel the groove alone is too
 shallow for SSAO to find — so a small real gap is needed to get the briefed "clear dark gaps between
@@ -262,9 +273,10 @@ blocks". Stay in the 0.08–0.12 / 0.03–0.045 bands. History: gap 0.07 read as
 silhouette; 0.028 made the seam a *lit bevel*, which read as panelling (see the solid-cube pass
 below); 0 removed the cavity entirely. Same-color cubes get a *light* quantized
 per-block jitter (`ColorTools.Jitter`, hue 0.02 / value 0.04 — lighting, not random color,
-carries the shading) applied via MaterialPropertyBlock, plus a ±2% size wobble
-(`voxelScaleJitter`); `VoxelCube.Color` keeps the exact base color for gameplay/FX tints. The mesh
-has per-face planar UVs; voxel materials sample the EdgeSheen texture — a plastic tile with a soft
+carries the shading) served as **baked material variants, never a MaterialPropertyBlock** (see the
+Density pass), plus a ±2% size wobble
+(`voxelScaleJitter`); `VoxelCube.Color` keeps the exact base color for gameplay/FX tints. Both the
+built-in cube and RoundedCube have per-face 0..1 UVs; voxel materials sample the EdgeSheen texture — a plastic tile with a soft
 off-center gaussian sheen blob (plate 0.90 → 1.0 at the blob, sigma 0.34, rim 0.90, band 0.08)
 that fakes a broad premium-gloss highlight on every face. Deliberately subtle: any strong dark rim
 reads as a black pixel-grid, which the user rejected twice. **Lighting philosophy (final, per reference): "everything is lit — shadow only shapes form."**
@@ -549,6 +561,89 @@ the struck cube turned into a 9th rigidbody, several times a second.
   materials, and every `fx*Count`/`fx*Size`/`debris*` GameConfig field. `IFxService` is now the
   single method `PlayImpact(position, color)`.
 
+**Density pass (2026-07-31) — 1000-2000 cubes a level, on Unity's built-in cube.** User: *"tăng mật
+độ của Sculpture lên, và thay vì dùng RoundedCube thì hãy dùng các khối cube cơ bản của unity để
+giảm tris... 1 game đấu ít nhất phải 1000-2000 khối cube."* Levels went from 52-450 voxels to
+**990-2006**, ramped linearly by level. (**The cube counts and `gunFireInterval` here were
+superseded hours later by the Solid pass below — everything else stands.**)
+Measured on level 60 (2006 cubes): the sculpture draws
+**24k triangles** where the old rounded mesh would have drawn 1.18M, and **98.8% of voxel renderers
+carry no MaterialPropertyBlock**, so they stay in the SRP Batcher (1212 renderers, 14 with a block,
+during a live four-gun barrage). What each piece is and why:
+- **`VoxelCube.prefab` uses `Resources.GetBuiltinResource<Mesh>("Cube.fbx")` — 12 triangles vs
+  RoundedCube's 588.** Its per-face UVs are the full 0..1 square, exactly like the rounded mesh's
+  planar UVs, so EdgeSheen maps unchanged. `RoundedCube.asset` is still baked and still used by the
+  **gun slot rims and bank blocks** — a handful of props seen large, where the bevel is what sells
+  the toy read. `voxelCornerRadius`/`voxelRoundSegments` therefore no longer affect the sculpture.
+- **`voxelSize` 0.5 → 0.25, `voxelGap` 0.035 → 0.018.** A level's grid now spans ~16-34 cells
+  instead of ~11, so halving the cell keeps the sculpture at the SAME world size — which is what
+  the camera fit, the dart arc and every world-unit FX knob are tuned against. Anything measured in
+  world units was halved with it (`popRise`, `shockwaveStartSize`/`EndSize`/`CameraLift`);
+  `hitPunchRadius` is in CELLS and went 1.35 → 1.8, deliberately less than double (see below).
+- **Per-block colour jitter is now BAKED MATERIALS, not a MaterialPropertyBlock.** This is the
+  single most important perf decision here. An MPB evicts its renderer from the SRP Batcher, which
+  costs nothing at 450 cubes and is a full material bind per cube at 2000; distinct .mat assets
+  sharing one shader stay in one batch. `ColorTools.JitterVariants` (3) quantised shades per slot
+  live in `Art/Materials/Voxels/Jitter/Voxel_S{set}_C{slot}_J{v}.mat`, reached through
+  `VisualLibrary.GetVoxelMaterial(set, slot, variant)`; variant 1 is the zero-offset shade and just
+  points at the base .mat, so only 2 extra files per slot exist. `VoxelCubeField` picks the variant
+  from the same position hash the old jitter used. **A voxel must therefore never hold a property
+  block at rest** — `VoxelCube` clears it (`RendererTinter.Clear` → `SetPropertyBlock(null)`) the
+  moment a punch flash ends, and `ApplyFlash(0)` clears rather than re-tints. Reintroducing a
+  permanent MPB on voxels silently costs ~2000 draw-call binds a frame.
+  `BakeVoxelJitterMaterial` re-derives each variant from its base with `CopyPropertiesFromMaterial`
+  on EVERY bake (same always-apply reasoning as `RoundedCube.asset`/`NumberLabel.mat`) so the
+  hand-held white voxel materials carry their edits into their variants.
+- **`ExposedTargetSelector.Reserve` resolves one height band at a time.** Visibility is a ray march
+  through the grid and everything else in the filter is a field compare; scanning all 2000 voxels
+  would march 2000 times per shot, four guns × ~17 shots/s. It now finds the highest band with any
+  live unreserved candidate, marches only that band, and drops to the next band down only if
+  nothing there is exposed. Same semantics as the old single-pass version, a few marches instead of
+  thousands.
+- **`gunFireInterval` 0.16 → 0.06** (0.03 since the Solid pass) so a level still clears in 15-30s.
+  At the time the bank still held ~15 blocks, which kept the player's deploy cadence at the
+  450-cube version's; the bank became a queue of 50-70 ammo blocks later, see Level content.
+  `TimeStarRule`'s `secondsPerVoxel` is derived from this (`gunFireInterval / gunSlotCount` is the
+  floor; par is 2× it) — **retune both together** or every level hands out three stars.
+- **Knock-on effects that had to be damped, all caused by ~60 destroys a second:**
+  `AudioManager` throttles the shoot/break one-shots to ~20/s each (past that it is a flat buzz and
+  churns voices); `hitFlashIntensity` 0.55 → 0.35 and `hitPunchTime` 0.16 → 0.12 (hundreds of
+  simultaneous flashes read as strobing, and each flashing cube is out of the batch);
+  `shockwaveMaxActive` 16 → 40 (60/s × 0.22s life recycles a 16-ring pool mid-animation — measured
+  15 rings live at once).
+- **`cameraTopMargin` (3.2) is a NEW knob and was needed.** The framing solver used to take its top
+  headroom from `cameraFitPadding`, which is also the multiplier on `halfHeight`, so it could not be
+  raised on its own. Every level is a big sculpture now and tall ones (the apple's stem, the heart)
+  rendered straight through the HUD's progress bar and "N blocks left" label, which the solver
+  cannot see. Verified at 3.2 on the tallest shapes.
+
+**Solid pass (2026-07-31, immediately after) — sculptures are no longer hollow.** User: *"có vài
+khối Sculpture tạo thành hình dạng các loại trái cây nhưng bị rỗng ruột... bỏ giới hạn trên đi, bao
+nhiêu khối cube cũng được."* The Density pass hollowed every shape to a one-cell shell to keep the
+cube count affordable, and that is visibly wrong the moment the player breaks through: a
+half-demolished strawberry was an empty husk. **The hollowing (and its orphan-repair loop) is gone —
+the model is a full solid.** The cost is paid on the Unity side instead:
+- **`VoxelCubeField` only instantiates EXPOSED cubes** (at least one of six grid neighbours
+  missing) and `Reveal(index)` spawns a voxel's still-living neighbours when it dies — exactly the
+  event that exposes them. Renderer count therefore tracks the sculpture's *surface area*, not its
+  volume, and never rises during a level. Measured on level 60: **7815 solid cubes, 1944 renderers
+  (25%)**, and the count only falls from there (1944 → 1840 → 1522 → 690 → 0 over a full clear).
+  Rendering cost is within noise of the hollow version. **Do not go back to instantiating every
+  voxel** — the buried ones are pure cost with nothing on screen.
+- `gen_levels`' `VOXEL_MIN`/`VOXEL_MAX` (3000 → 8000) are now a **pacing** knob, not a rendering
+  budget: clear time is `cubes / (gunSlotCount / gunFireInterval)`. Raising them costs level
+  duration and asset size (4.0 MB across the 60 levels, 100 KB at the largest), not frame time.
+  `solve_resample` switched its first guess from `factor^2` to `factor^3` — a solid is a volume.
+  The resample factors barely moved (~2.3-2.6), so the shapes carry the same detail as before; they
+  are just filled in.
+- **`gunFireInterval` 0.06 → 0.03** is what pays for the extra cubes: ~130 darts/s keeps a level at
+  a casual 22-60s. `TimeStarRule.secondsPerVoxel` follows it to 0.015.
+- **The risk this had to clear**: with exact ammo, a buried voxel that never becomes
+  camera-exposed makes a level unwinnable. Verified end to end on both geometry modes — level 60
+  (lemon, revolved, 7815 cubes) and level 6 (watermelon, `flat` mode, 3372) each finish
+  `state=Won, alive=0, bankLeft=0, gunAmmoLeft=0`. Re-verify both after any change to
+  `ExposedTargetSelector` or `CameraVoxelVisibility`.
+
 ### Prefabs (`Assets/_Project/Prefabs/`)
 `VoxelCube`, `Dart`, `Gun`, `GunSlot` (references `Gun`), `BankBlock`, plus `Fx/Shockwave.prefab`. Prefabs are now **fully authored**: the whole visual subtree
 (meshes, materials, TMP labels, colliders, trail) lives in the prefab with serialized renderer
@@ -566,29 +661,55 @@ exposed via `CameraRig.Main`. Exception: the code-first UI layer (`UIFactory` + 
 still builds uGUI with AddComponent by design — converting it means prefab-izing the whole UI.
 
 ### Level content
-- `Resources/Levels/level_001.json` … `level_060.json`, generated by **`Tools/gen_levels.py`**
-  (`python Tools/gen_levels.py` — regenerates all 60 in place, deterministic). Keep this file IN
-  the repo: the previous generator lived only in a scratchpad and was lost, which left the level
-  content unregenerable.
+- `Resources/Levels/level_001.asset` … `level_060.asset` — **`LevelAsset` ScriptableObjects, not
+  JSON** (2026-07-31; user: *"chuyển đổi json thành scriptable object, dùng json khá khó để thao
+  tác"*). Generated by **`Tools/gen_levels.py`** (`python Tools/gen_levels.py` — regenerates all 60
+  in place, deterministic; 4.0 MB total vs 8.7 MB as JSON). Keep the generator IN the repo: an
+  earlier one lived only in a scratchpad and was lost, which left the level content unregenerable.
+- **The sculpture is stored PACKED — one int per cube** (`LevelAsset.Pack`: x, y, z, colour as four
+  bytes, coordinates biased by `CoordinateOffset` 128 because two axes are centred and go negative).
+  A `VoxelDef[]` of 3000-8000 entries would be ~5 YAML lines per cube — about a megabyte per asset —
+  and would hand the default inspector an 8000-element array to draw. `packedVoxels` is therefore a
+  private serialized field: nothing draws it, and `ToLevelData()` unpacks on load (cloning `bank`/
+  `bankColors`, or gameplay would write through into the asset on disk).
+- **Everything a human edits is a plain field** — `paletteIndex`, `gunSlots`, `bankColumns`,
+  `bank[]`, `bankColors[]` — and `LevelAssetEditor` adds the two things the raw fields cannot show:
+  cube-vs-ammo per colour, and a solvability verdict from `LevelAsset.FindBankIssues()`. **That
+  check is not decoration**: guns are colour-locked with no surplus ammo, so changing one bank
+  number by one makes the level impossible with no symptom until it is played to the end.
+- **The generator writes the .asset YAML (and .meta) itself**, rather than emitting JSON for an
+  editor import step, so one command rebuilds all content with no Unity running. It needs exactly
+  one thing from the project: `LevelAsset`'s script GUID, read from the committed
+  `LevelAsset.cs.meta`. Per-level asset GUIDs are an md5 of the level number so regenerating never
+  renames a file. If you rename or move `LevelAsset.cs`, keep its `.cs.meta` — the generator and
+  every existing level asset point at that GUID.
 - Sculptures are recognisable **objects** — strawberry, apple, watermelon, ice cream, donut,
   cupcake, rocket, cactus, soccer ball, gem, present, dice… (28 shapes, every one used at least
   twice). Each is authored as a 2D pixel map of *semantic colour letters* (`R O Y G P W K`), not
   raw slot indices, because the four `PaletteConfig` voxel sets differ (set A has no yellow, set C
   no purple); the generator renders each shape with a set that can express all its letters. There
   is no pedestal any more — the object is the whole sculpture.
+- **Density is stated in cubes, and the art is RESAMPLED to hit it.** Levels ramp linearly from
+  `VOXEL_MIN` 3000 to `VOXEL_MAX` 8000 (actual: 2960-7974). The pixel maps stay at a readable
+  ~11×12 — far too coarse for four figures — so each level nearest-neighbour-upscales its map
+  (`resample`) before revolving, and `solve_resample` bisects for the factor that lands closest to
+  the target. The first guess comes from count ≈ factor³ (the sculpture is a solid volume), which
+  makes the search converge in a handful of evaluations. Nearest-neighbour rather than any smoothing
+  is deliberate: the map is a *colour* map and interpolation would invent colours no palette set can
+  express. Because the target is stated per level, `build_plan` no longer sorts the roster by
+  natural voxel count — it only decides coverage and variety.
 - **Round shapes are true solids of revolution, then hollowed.** A row N cells wide is also made
   ~N cells deep (per-column depth follows the row's circular profile). Do NOT go back to a fixed
   shallow extrude: the sculpture sits on a turntable, so a fixed-depth "ball" is a coin and
-  spinning it side-on exposes that instantly. The solid is then hollowed (any voxel with all six
-  neighbours present is dropped) — a full ball is ~650 voxels of which the interior can never be
-  seen or shot, the shell is ~270 and plays identically since targeting only picks camera-exposed
-  voxels. Hollowing can strand a shell voxel whose neighbours were all interior, so the generator
-  re-adds the minimum interior voxels needed to keep everything face-connected; the validator
-  asserts zero orphans.
-- Difficulty ramps via `bulk` (0.5 → 1.0, how fully the shape is revolved), 52 → 450 voxels across
-  the 60 levels. The plan **selects the roster first, then sorts it by real voxel count** — an
-  earlier version walked a size-ordered list with an advancing cursor and ran out of large combos,
-  repeating one shape for the last dozen levels.
+  spinning it side-on exposes that instantly. **Each contiguous RUN of a row is revolved
+  separately** (`runs`) — a row like the heart's `..RR...RR..` or the cherry's `RRRRR.RRRRR` is two
+  volumes, and measuring the profile across the whole row gives both the depth of the *combined*
+  span, revolving them into one wide flat plate. At the authored resolution that was a couple of
+  stray cubes; at the resampled resolution it was a very visible slab on top of the level-1 heart.
+  **The result is NOT hollowed** — see the Solid pass. `count_exposed` reports how many of a level's
+  cubes start visible, i.e. how many GameObjects it actually spawns; that is the number to watch
+  when changing `VOXEL_MIN`/`VOXEL_MAX`, not the total.
+- `bulk` (0.8 / 1.0) is now only a roundness/variety knob — the difficulty ramp is the cube target.
 - **EXACT ammo, no surplus (2026-07-31).** The bank holds one dart per cube: `sum(bank) ==
   len(voxels)`, and because guns are color-locked it holds **per color** too —
   `sum(bank values with bankColors == c) == voxel count of color c`. `gen_levels.check_bank`
@@ -598,11 +719,34 @@ still builds uGUI with AddComponent by design — converting it means prefab-izi
   when `RequestTarget` returns -1 (nothing live, unreserved and camera-exposed), reservation stops
   two darts claiming one voxel, `GameManager.DeployBlock` refuses a block whose color is already
   cleared, and a gun only retires with leftover ammo once its color is gone — i.e. when it had
-  nothing left to shoot anyway. Verified end-to-end in Play mode: level 12 finished `state=Won`
-  with `alive=0, bankLeft=0, gunAmmoLeft=0`. **If you ever add a way to waste a dart** (a miss, a
-  dart destroyed in flight, deploying onto an already-cleared color) the levels become unwinnable —
-  put the surplus back at the same time. Bank blocks are split near a target value that grows with
-  level and shuffled deterministically (seed = level) so colours interleave.
+  nothing left to shoot anyway. Verified end-to-end in Play mode at the new density: level 60
+  (2006 cubes) finished `state=Won` with `alive=0, bankLeft=0, gunAmmoLeft=0`. **If you ever add a
+  way to waste a dart** (a miss, a dart destroyed in flight, deploying onto an already-cleared
+  color) the levels become unwinnable — put the surplus back at the same time.
+- **The bank block VALUE is capped, and the count is free** (2026-07-31; user: *"chia ra nhiều bank
+  hơn, hiện tại mỗi bank đang 100-200 là khá nhiều. mỗi bank value sẽ 50 đến 70"*). `BLOCK_MIN` 50 /
+  `BLOCK_TARGET` 60 / `BLOCK_MAX` 70, so a block is always a clean two-digit number and a level
+  holds `cubes / 60` of them — **49 blocks early, 133 late**. This is the reverse of the previous
+  rule, which capped the count at the 15 that fit on screen and let the value absorb the level's
+  density (100-240 per block, three digits). `split_color` picks whichever of
+  floor/ceil(ammo / 60) lands closest to the target: some totals cannot be cut into the band at all
+  (90 is one block of 90 or two of 45), and landing slightly under beats landing far over, so
+  `check_bank` asserts only the upper bound. Blocks are shuffled deterministically (seed = level) so
+  colours interleave.
+- **`BankArea` is therefore a WINDOW onto a queue, not the whole bank.** It lays out
+  `GameConfig.bankVisibleRows` (3) × `bankColumns` (5) = 15 blocks and deactivates the rest,
+  parking them exactly one row behind the window so they slide forward as the queue advances
+  instead of popping in. `bankVisibleRows` existed in the config but was unused until this pass.
+- Both the bank and the gun labels still auto-size (`BankLabelFit`, `GunLabelFit` in
+  `VisualAssetBaker`) — a fixed size can only ever be right for one digit count, and the gun label
+  was fixed at 0.066 until the density pass.
+- **The knock-on to know: block value sets the deploy cadence.** A gun burns a block in
+  `blockValue × gunFireInterval` seconds, so with 60 ammo at 0.03 a slot frees every ~1.8s and,
+  across four slots, the player deploys roughly **every 0.45s** for the whole level. Level duration
+  is then `cadence × blockCount` — the three are locked together, so a calmer cadence at this cube
+  count means proportionally longer levels. Raise `BLOCK_TARGET` (busier numbers, calmer hands) or
+  lower `VOXEL_MIN`/`VOXEL_MAX` (fewer blocks) to move it; changing `gunFireInterval` alone trades
+  cadence against duration one-for-one.
 
 ### Config assets
 `Assets/_Project/Resources/Config/GameConfig.asset` + `PaletteConfig.asset` + `VisualLibrary.asset`.

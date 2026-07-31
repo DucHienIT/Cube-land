@@ -26,6 +26,11 @@ namespace CubeBlaster
             for (int i = 0; i < targets.Length; i++) Apply(targets[i], color);
         }
 
+        public void Clear(Renderer target)
+        {
+            if (target != null) target.SetPropertyBlock(null);
+        }
+
         public static void WriteColor(MaterialPropertyBlock block, Color color)
         {
             block.SetColor(BaseColorId, color);

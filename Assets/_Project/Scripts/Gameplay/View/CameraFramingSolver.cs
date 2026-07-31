@@ -14,7 +14,7 @@ namespace CubeBlaster
 
         public static CameraFraming Solve(Bounds sculpture, float aspect, GameConfig config)
         {
-            float topY = sculpture.max.y + config.cameraFitPadding;
+            float topY = sculpture.max.y + config.cameraTopMargin;
             float bottomY = config.cameraFitBottomY;
             float halfHeight = (topY - bottomY) * 0.5f * config.cameraFitPadding;
             float halfWidth = Mathf.Max(MinFramedHalfWidth, sculpture.extents.x * SculptureHalfWidthFactor);

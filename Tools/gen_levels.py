@@ -7,21 +7,71 @@ rather than an abstract figure. A shape is authored as a 2D pixel map of semanti
 letters; the generator revolves it into a 3D solid so it reads as a round volume from the
 game's steep 3/4 camera, then builds a per-colour bank that is solvable by construction.
 
+DENSITY: every level is a HIGH-density SOLID sculpture — VOXEL_MIN..VOXEL_MAX cubes, ramped
+linearly across the 60 levels. The pixel maps are authored at a readable ~11x12, far too
+coarse to reach four figures, so each level RESAMPLES its map to a larger resolution before
+revolving it (`resample`), and `solve_resample` solves for the factor that hits the level's
+cube target rather than hand-authoring bigger art.
+
+The sculptures are NOT hollowed. An earlier version kept only the one-cell shell, which held
+the cube count down but made every half-demolished fruit an empty husk. VOXEL_MAX is a
+pacing knob (it sets how long a level runs), not a rendering budget — Unity only instantiates
+the exposed cubes, so raising it costs level duration and JSON size, not frame time.
+
 Run:  python Tools/gen_levels.py
-Writes Assets/_Project/Resources/Levels/level_NNN.json (+ .meta for new files).
+Writes Assets/_Project/Resources/Levels/level_NNN.asset (+ .meta for new files) — real Unity
+ScriptableObjects (`LevelAsset`), not JSON, so a level's palette / gun slots / bank are
+inspectable and editable in the editor and the custom inspector can verify solvability. The
+sculpture itself is written PACKED, one int per cube, because a VoxelDef[] of 3000-8000
+entries would be a megabyte of YAML per level and would hang the inspector.
+
+Writing the .asset YAML from here rather than through an editor import step keeps
+`python Tools/gen_levels.py` the single command that rebuilds all content, with no open Unity
+required. The only thing it needs from the project is LevelAsset's script GUID, read from the
+committed .cs.meta.
 
 NOTE: keep this file IN the repo. The previous generator lived only in a scratchpad and was
 lost, which meant level content could not be regenerated.
 """
 
-import json
+import hashlib
 import math
 import os
 import random
+import re
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT_DIR = os.path.join(HERE, "..", "Assets", "_Project", "Resources", "Levels")
+SCRIPT_META = os.path.join(HERE, "..", "Assets", "_Project", "Scripts", "Core", "Level",
+                           "LevelAsset.cs.meta")
 LEVEL_COUNT = 60
+
+# Matches LevelAsset.CoordinateOffset — a cube packs into one int as four bytes, and the axes
+# are centred on the sculpture so two of them go negative.
+COORDINATE_OFFSET = 128
+
+# Cubes per sculpture, level 1 -> level 60. These are SOLID counts. Raising them is safe for
+# frame time (only exposed cubes get a GameObject) but costs level duration roughly linearly:
+# four guns at gunFireInterval 0.03 clear ~133 cubes a second.
+VOXEL_MIN = 3000
+VOXEL_MAX = 8000
+# How far off target a level may land. The count is a step function of the resample factor,
+# so an exact hit is not always reachable.
+VOXEL_TOLERANCE = 0.03
+
+# Ammo per bank block. A block is a single readable two-digit number, NOT a share of the
+# sculpture — an earlier version capped the block count to the 15 that fit on screen and let
+# the value grow with the level, which put 100-240 on every block. The bank is a scrolling
+# queue instead (BankArea shows GameConfig.bankVisibleRows of it), so the count is free.
+#
+# A level therefore holds cubes/60 blocks — 49 early, 133 late — and one gun burns a block in
+# BLOCK_TARGET * gunFireInterval seconds. That product IS the player's deploy cadence, so
+# moving this band moves how frantic the game is.
+BLOCK_MIN = 50
+BLOCK_MAX = 70
+BLOCK_TARGET = 60
+
+BANK_COLUMNS = 5
 
 # ---------------------------------------------------------------------------
 # Palette: semantic letter -> colour slot, per PaletteConfig voxel set.
@@ -444,7 +494,44 @@ make_ball("planet", 6, "P", "W", True)
 NEIGHBOURS = ((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1))
 
 
-def build_voxels(sh, palette_set, bulk):
+def runs(row):
+    """Contiguous spans of non-empty cells in a row, as (lo, hi) inclusive."""
+    spans = []
+    start = None
+    for i, ch in enumerate(row):
+        if ch != "." and start is None:
+            start = i
+        elif ch == "." and start is not None:
+            spans.append((start, i - 1))
+            start = None
+    if start is not None:
+        spans.append((start, len(row) - 1))
+    return spans
+
+
+def resample(rows, factor):
+    """Nearest-neighbour upscale of a pixel map.
+
+    This is what turns a hand-authored ~11x12 map into the several-hundred-cell-across grid
+    a 1000-2000 cube sculpture needs. Nearest-neighbour (not smoothing) is deliberate: the
+    art is a colour map, and any interpolation would invent colours that no palette set can
+    express. A single authored pixel simply becomes a solid k*k patch, which keeps details
+    like the strawberry seeds recognisable at the larger size instead of dissolving.
+    """
+    if factor <= 1.0001:
+        return rows
+    h = len(rows)
+    w = len(rows[0])
+    height = max(1, int(round(h * factor)))
+    width = max(1, int(round(w * factor)))
+    out = []
+    for j in range(height):
+        src = rows[min(h - 1, j * h // height)]
+        out.append("".join(src[min(w - 1, i * w // width)] for i in range(width)))
+    return out
+
+
+def build_voxels(sh, palette_set, bulk, factor=1.0):
     """Turn the pixel map into a 3D object.
 
     "round" mode is a true SOLID OF REVOLUTION: a row that is N cells wide is also made
@@ -452,73 +539,133 @@ def build_voxels(sh, palette_set, bulk):
     matters because the sculpture is on a turntable — an object given a fixed shallow
     depth is a coin, and spinning it side-on exposes that instantly.
 
-    The result is then HOLLOWED (any voxel with all six neighbours present is dropped).
-    A full-depth solid ball is ~650 voxels of which the player can never see or shoot the
-    interior; the shell is ~270 and plays identically, since targeting only ever picks
-    camera-exposed voxels.
+    The object is SOLID — every cell inside the volume is a real, shootable cube. It used to
+    be hollowed to a one-cell shell so the cube count would stay affordable, but a shell is
+    visibly wrong the moment the player breaks through it: a strawberry demolished halfway is
+    an empty husk. Nothing here caps the count any more; the renderer cost is handled on the
+    Unity side instead, where VoxelCubeField only instantiates the cubes that are currently
+    exposed and reveals buried ones as their neighbours die.
 
-    `bulk` (0..1) scales depth: low = flattened relief (easy, early levels), 1 = fully round.
+    `bulk` (0..1) scales depth: low = flattened relief, 1 = fully round.
+    `factor` resamples the art first — see `resample` / `solve_resample`.
     """
     slot = SETS[palette_set]
-    rows = sh["rows"]
+    rows = resample(sh["rows"], factor)
     h = len(rows)
     scale = bulk * sh["depth"]
 
     filled_by_pos = {}
     for j, row in enumerate(rows):
-        filled = [i for i, ch in enumerate(row) if ch != "."]
-        if not filled:
-            continue
-        lo, hi = min(filled), max(filled)
-        half = max((hi - lo + 1) / 2.0, 0.5)
-        cx = (lo + hi) / 2.0
+        y = h - 1 - j  # flip: row 0 is the TOP of the object, y grows upward
+        for lo, hi in runs(row):
+            # Revolve each contiguous RUN of the row, not the row as a whole. A row like the
+            # heart's "..RR...RR.." or the cherry's "RRRRR.RRRRR" is two separate volumes;
+            # measuring the profile across the full row gives both of them the depth of the
+            # combined span, which revolves them into one wide flat plate instead of two
+            # lobes. At the authored resolution that was a couple of stray cubes — at the
+            # resampled resolution this generator now uses it is a very visible slab.
+            half = max((hi - lo + 1) / 2.0, 0.5)
+            cx = (lo + hi) / 2.0
 
-        for i in filled:
-            ch = row[i]
-            if ch not in slot:
-                raise ValueError("shape %s uses '%s', not in set %d" % (sh["name"], ch, palette_set))
+            for i in range(lo, hi + 1):
+                ch = row[i]
+                if ch == ".":
+                    continue
+                if ch not in slot:
+                    raise ValueError("shape %s uses '%s', not in set %d" % (sh["name"], ch, palette_set))
 
-            if sh["mode"] == "flat":
-                d = max(1, int(round(len(row) * scale)))
-            else:
-                t = (i - cx) / half
-                profile = math.sqrt(max(0.0, 1.0 - t * t))
-                d = max(1, int(round(2.0 * half * scale * profile)))
+                if sh["mode"] == "flat":
+                    d = max(1, int(round(len(row) * scale)))
+                else:
+                    t = (i - cx) / half
+                    profile = math.sqrt(max(0.0, 1.0 - t * t))
+                    d = max(1, int(round(2.0 * half * scale * profile)))
 
-            z0 = -(d // 2)
-            y = h - 1 - j  # flip: row 0 is the TOP of the object, y grows upward
-            for k in range(d):
-                filled_by_pos[(i, y, z0 + k)] = slot[ch]
+                z0 = -(d // 2)
+                for k in range(d):
+                    filled_by_pos[(i, y, z0 + k)] = slot[ch]
 
-    solid = filled_by_pos
-    shell = {p for p in solid
-             if not all((p[0] + d[0], p[1] + d[1], p[2] + d[2]) in solid for d in NEIGHBOURS)}
+    return [{"x": p[0], "y": p[1], "z": p[2], "c": filled_by_pos[p]}
+            for p in sorted(filled_by_pos)]
 
-    # Hollowing can strand a shell voxel whose every neighbour happened to be interior,
-    # leaving a cube floating beside the sculpture. Put back the minimum interior voxels
-    # needed to keep every survivor face-connected.
-    while True:
-        orphans = [p for p in shell
-                   if not any((p[0] + d[0], p[1] + d[1], p[2] + d[2]) in shell for d in NEIGHBOURS)]
-        if not orphans:
+
+def count_exposed(voxels):
+    """Cubes with at least one of six neighbours missing — i.e. how many GameObjects the
+    sculpture actually starts with. This is the number that drives renderer cost, so the
+    generator reports it alongside the total."""
+    occupied = {(v["x"], v["y"], v["z"]) for v in voxels}
+    return sum(1 for p in occupied
+               if not all((p[0] + d[0], p[1] + d[1], p[2] + d[2]) in occupied for d in NEIGHBOURS))
+
+
+def voxel_target(level):
+    t = (level - 1) / float(max(1, LEVEL_COUNT - 1))
+    return int(round(VOXEL_MIN + (VOXEL_MAX - VOXEL_MIN) * t))
+
+
+def solve_resample(sh, palette_set, bulk, target):
+    """Find the resample factor whose cube count lands closest to `target`.
+
+    The sculpture is a solid volume, so count ~ factor^3 — that law gives a first guess
+    accurate enough that a short bisection finishes it. (It was factor^2 while the shapes
+    were hollowed to a shell; using the wrong exponent just costs extra iterations, but the
+    cube root is what converges here.) Solving per level rather than picking a fixed factor
+    per shape is what lets the difficulty ramp be stated directly in cubes: a tall thin
+    rocket and a fat ball reach 5000 at very different resolutions.
+    """
+    base = len(build_voxels(sh, palette_set, bulk, 1.0))
+    guess = (target / float(max(1, base))) ** (1.0 / 3.0)
+    lo, hi = max(1.0, guess * 0.55), max(1.2, guess * 1.7)
+
+    best = None
+    for _ in range(16):
+        mid = (lo + hi) * 0.5
+        count = len(build_voxels(sh, palette_set, bulk, mid))
+        if best is None or abs(count - target) < abs(best[1] - target):
+            best = (mid, count)
+        if abs(best[1] - target) <= target * VOXEL_TOLERANCE:
             break
-        added = False
-        for p in orphans:
-            for d in NEIGHBOURS:
-                q = (p[0] + d[0], p[1] + d[1], p[2] + d[2])
-                if q in solid and q not in shell:
-                    shell.add(q)
-                    added = True
-                    break
-        if not added:
-            break  # genuinely detached in the source art — reported by the validator
-
-    return [{"x": p[0], "y": p[1], "z": p[2], "c": solid[p]} for p in sorted(shell)]
+        if count < target:
+            lo = mid
+        else:
+            hi = mid
+        if hi - lo < 0.004:
+            break
+    return best
 
 
 # ---------------------------------------------------------------------------
 # Bank: solvable by construction, per colour (guns are colour-locked)
 # ---------------------------------------------------------------------------
+def split_color(ammo, rng):
+    """Break one colour's ammo into blocks that each read as a two-digit number.
+
+    The count is whichever of floor/ceil(ammo / BLOCK_TARGET) lands closest to the target
+    rather than a fixed divisor: some totals simply cannot be cut into the band (90 is one
+    block of 90 or two of 45, both outside 50-70), and landing slightly under beats landing
+    far over — an oversized block parks a gun on one colour for a long stretch.
+    """
+    if ammo <= BLOCK_MAX:
+        return [ammo]
+
+    low = max(1, ammo // BLOCK_TARGET)
+    count = min((low, low + 1), key=lambda c: abs(ammo / float(c) - BLOCK_TARGET))
+    base, remainder = divmod(ammo, count)
+    parts = [base + (1 if i < remainder else 0) for i in range(count)]
+
+    # Jitter inside the band so the grid does not read as machine-uniform. Moves that would
+    # leave the band are skipped rather than clamped, which keeps the per-colour total exact.
+    for _ in range(len(parts) * 2):
+        a, b = rng.randrange(len(parts)), rng.randrange(len(parts))
+        if a == b:
+            continue
+        move = rng.randint(1, 6)
+        if parts[a] - move >= BLOCK_MIN and parts[b] + move <= BLOCK_MAX:
+            parts[a] -= move
+            parts[b] += move
+    return parts
+
+
 def build_bank(voxels, level, rng):
     need = {}
     for v in voxels:
@@ -533,26 +680,11 @@ def build_bank(voxels, level, rng):
     #   - GameManager.DeployBlock refuses a block whose colour is already cleared,
     #   - a gun only retires early once its colour is gone, i.e. it has nothing left
     #     to shoot anyway.
-    t = (level - 1) / max(1, LEVEL_COUNT - 1)
-
-    # Block values stay in a readable band; more voxels -> more blocks, not huge numbers.
-    target_block = 12 + int(26 * t)
-
+    # The block COUNT is free — the bank is a scrolling queue, not a fixed grid — so the
+    # value can stay in a readable band instead of absorbing the level's density.
     blocks = []
     for color in sorted(need):
-        ammo = need[color]
-        count = max(2, int(round(ammo / float(target_block))))
-        count = max(1, min(count, ammo))  # never emit a zero-value block
-        base, rem = divmod(ammo, count)
-        parts = [base + (1 if i < rem else 0) for i in range(count)]
-        # jitter so columns don't look machine-uniform, keeping the per-colour total intact
-        for _ in range(len(parts)):
-            a, b = rng.randrange(len(parts)), rng.randrange(len(parts))
-            if a != b and parts[a] > 3:
-                move = rng.randint(1, max(1, parts[a] // 4))
-                parts[a] -= move
-                parts[b] += move
-        blocks += [(p, color) for p in parts]
+        blocks += [(p, color) for p in split_color(need[color], rng)]
 
     # Interleave colours so the player must think about which colour to deploy next,
     # instead of clearing one colour at a time in bank order.
@@ -578,6 +710,13 @@ def check_bank(level, voxels, bank, bank_colors):
     if sum(bank) != len(voxels):
         raise AssertionError("level %d ammo %d != cubes %d" % (level, sum(bank), len(voxels)))
 
+    # A block over the band is the one that actually hurts: it is a three-digit label and a
+    # gun stuck on one colour. Under the band is only possible when a colour's whole total is
+    # small, which is harmless.
+    if max(bank) > BLOCK_MAX:
+        raise AssertionError("level %d has a %d-ammo block, band is %d-%d"
+                             % (level, max(bank), BLOCK_MIN, BLOCK_MAX))
+
 
 # ---------------------------------------------------------------------------
 # Level plan: which shape, how deep, which palette
@@ -590,51 +729,38 @@ def shape_sets(sh):
     return candidates
 
 
-BULKS = (0.5, 0.65, 0.8, 1.0)
+BULKS = (0.8, 1.0)
 
 
 def build_plan():
-    """Assign a (shape, bulk, palette) to every level so voxel count ramps MONOTONICALLY.
+    """Assign a (shape, bulk, palette) to every level.
 
-    SELECT FIRST, THEN SORT. An earlier version walked a size-ordered list with an
-    ever-advancing cursor, which ran out of large combos near level 60 and repeated one
-    shape for the last dozen levels. Choosing the roster up front and only then ordering
-    it by size cannot run dry: coverage and the difficulty ramp are decided separately.
+    The difficulty ramp is NO LONGER a by-product of which shape is naturally biggest —
+    every level is resampled to a stated cube target (`voxel_target`), so this function only
+    has to decide coverage and variety. That is why the old "select, then sort by real voxel
+    count" pass is gone: sorting by size would now sort a list of near-identical numbers.
+
+    Every shape appears at least twice, once per bulk, and the second pass walks the roster
+    from a different offset so a shape's two visits are far apart and no two neighbouring
+    levels are the same object.
     """
-    # Every shape appears at least twice — smallest and fullest bulk, so a repeat visit
-    # is a visibly rounder, meatier object rather than the same sculpture again.
     picks = []
-    for sh in SHAPES:
-        sets = shape_sets(sh)
-        for k, bulk in enumerate((BULKS[0], BULKS[-1])):
-            picks.append((sh, bulk, sets[k % len(sets)]))
+    for pass_index, bulk in enumerate(BULKS):
+        offset = (pass_index * 13) % len(SHAPES)
+        order = SHAPES[offset:] + SHAPES[:offset]
+        for sh in order:
+            sets = shape_sets(sh)
+            picks.append((sh, bulk, sets[pass_index % len(sets)]))
 
-    # Top up to LEVEL_COUNT with mid-bulk variants, spread over distinct shapes.
-    extra = LEVEL_COUNT - len(picks)
+    # Top up to LEVEL_COUNT, still avoiding an adjacent repeat.
     i = 0
-    while extra > 0:
+    while len(picks) < LEVEL_COUNT:
         sh = SHAPES[i % len(SHAPES)]
-        sets = shape_sets(sh)
-        bulk = BULKS[1 + (i // len(SHAPES)) % 2]
-        picks.append((sh, bulk, sets[(2 + i) % len(sets)]))
-        extra -= 1
+        if sh["name"] != picks[-1][0]["name"]:
+            sets = shape_sets(sh)
+            picks.append((sh, BULKS[-1], sets[(i + 1) % len(sets)]))
         i += 1
-    picks = picks[:LEVEL_COUNT]
-
-    # Order by real voxel count -> smooth difficulty ramp.
-    sized = sorted(((len(build_voxels(sh, ps, b)), sh, b, ps) for sh, b, ps in picks),
-                   key=lambda c: c[0])
-
-    # Break up any "same object twice in a row" by swapping with the next differing entry;
-    # neighbours are near-identical in size, so the ramp is unaffected.
-    for i in range(1, len(sized)):
-        if sized[i][1]["name"] == sized[i - 1][1]["name"]:
-            for j in range(i + 1, len(sized)):
-                if sized[j][1]["name"] != sized[i - 1][1]["name"]:
-                    sized[i], sized[j] = sized[j], sized[i]
-                    break
-
-    return [(sh, b, ps) for _, sh, b, ps in sized]
+    return picks[:LEVEL_COUNT]
 
 
 PLAN = None
@@ -644,41 +770,142 @@ def plan(level):
     global PLAN
     if PLAN is None:
         PLAN = build_plan()
-    sh, depth, palette_set = PLAN[level - 1]
-    return sh, depth, palette_set, random.Random(level * 7919 + 13)
+    sh, bulk, palette_set = PLAN[level - 1]
+    return sh, bulk, palette_set, random.Random(level * 7919 + 13)
+
+
+# ---------------------------------------------------------------------------
+# ScriptableObject output
+# ---------------------------------------------------------------------------
+def level_asset_script_guid():
+    path = os.path.abspath(SCRIPT_META)
+    if not os.path.isfile(path):
+        raise SystemExit(
+            "LevelAsset.cs.meta not found at %s — open the project in Unity once so it is "
+            "generated, then re-run." % path)
+    with open(path) as f:
+        match = re.search(r"^guid:\s*([0-9a-f]{32})\s*$", f.read(), re.M)
+    if not match:
+        raise SystemExit("no guid in " + path)
+    return match.group(1)
+
+
+def asset_guid(level):
+    """Stable per-level GUID so regenerating never renames an asset. Nothing references a
+    level by GUID (they load by Resources path), but a churning GUID would make every
+    regeneration a 60-file rewrite in git."""
+    return hashlib.md5(("cubeblaster.level.%03d" % level).encode()).hexdigest()
+
+
+def pack_voxel(v):
+    for axis in ("x", "y", "z"):
+        value = v[axis] + COORDINATE_OFFSET
+        if not 0 <= value <= 255:
+            raise AssertionError("voxel %s=%d does not fit one byte" % (axis, v[axis]))
+    if not 0 <= v["c"] <= 255:
+        raise AssertionError("colour slot %d does not fit one byte" % v["c"])
+    return ((v["x"] + COORDINATE_OFFSET)
+            | ((v["y"] + COORDINATE_OFFSET) << 8)
+            | ((v["z"] + COORDINATE_OFFSET) << 16)
+            | (v["c"] << 24))
+
+
+def yaml_int_array(name, values):
+    if not values:
+        return "  %s: []\n" % name
+    return "  %s:\n" % name + "".join("  - %d\n" % v for v in values)
+
+
+def write_level_asset(out, level, data):
+    """Writes the .asset (and its .meta on first creation) in Unity's own YAML shape — the
+    same NativeFormatImporter layout as the config assets already in the project."""
+    body = (
+        "%%YAML 1.1\n"
+        "%%TAG !u! tag:unity3d.com,2011:\n"
+        "--- !u!114 &11400000\n"
+        "MonoBehaviour:\n"
+        "  m_ObjectHideFlags: 0\n"
+        "  m_CorrespondingSourceObject: {fileID: 0}\n"
+        "  m_PrefabInstance: {fileID: 0}\n"
+        "  m_PrefabAsset: {fileID: 0}\n"
+        "  m_GameObject: {fileID: 0}\n"
+        "  m_Enabled: 1\n"
+        "  m_EditorHideFlags: 0\n"
+        "  m_Script: {fileID: 11500000, guid: %s, type: 3}\n"
+        "  m_Name: level_%03d\n"
+        "  m_EditorClassIdentifier: \n"
+        "  level: %d\n"
+        "  paletteIndex: %d\n"
+        "  gunSlots: %d\n"
+        "  bankColumns: %d\n"
+        % (data["scriptGuid"], level, level, data["paletteIndex"],
+           data["gunSlots"], data["bankColumns"])
+    )
+    body += yaml_int_array("bank", data["bank"])
+    body += yaml_int_array("bankColors", data["bankColors"])
+    body += yaml_int_array("packedVoxels", [pack_voxel(v) for v in data["voxels"]])
+
+    path = os.path.join(out, "level_%03d.asset" % level)
+    with open(path, "w", newline="\n") as f:
+        f.write(body)
+
+    meta = path + ".meta"
+    if not os.path.isfile(meta):
+        with open(meta, "w", newline="\n") as f:
+            f.write("fileFormatVersion: 2\n"
+                    "guid: %s\n"
+                    "NativeFormatImporter:\n"
+                    "  externalObjects: {}\n"
+                    "  mainObjectFileID: 11400000\n"
+                    "  userData: \n"
+                    "  assetBundleName: \n"
+                    "  assetBundleVariant: \n" % asset_guid(level))
 
 
 def main():
     out = os.path.abspath(OUT_DIR)
-    if not os.path.isdir(out):
-        raise SystemExit("levels folder not found: " + out)
+    # Created rather than required: git prunes the folder when the last level is deleted, and
+    # a fresh checkout should not need a manual mkdir before the first run.
+    os.makedirs(out, exist_ok=True)
+    script_guid = level_asset_script_guid()
 
     report = []
     for level in range(1, LEVEL_COUNT + 1):
-        sh, depth, palette_set, rng = plan(level)
-        voxels = build_voxels(sh, palette_set, depth)
+        sh, bulk, palette_set, rng = plan(level)
+        target = voxel_target(level)
+        factor, _ = solve_resample(sh, palette_set, bulk, target)
+        voxels = build_voxels(sh, palette_set, bulk, factor)
         bank, bank_colors = build_bank(voxels, level, rng)
         check_bank(level, voxels, bank, bank_colors)
 
         data = {
+            "scriptGuid": script_guid,
             "level": level,
             "paletteIndex": palette_set,
             "gunSlots": 4,
-            "bankColumns": 5,
+            "bankColumns": BANK_COLUMNS,
             "voxels": voxels,
             "bank": bank,
             "bankColors": bank_colors,
         }
+        write_level_asset(out, level, data)
 
-        path = os.path.join(out, "level_%03d.json" % level)
-        with open(path, "w") as f:
-            json.dump(data, f, separators=(",", ":"))
-
-        report.append((level, sh["name"], len(voxels), depth, palette_set, len(bank)))
+        span = max(v["x"] for v in voxels) - min(v["x"] for v in voxels) + 1
+        report.append((level, sh["name"], len(voxels), target, count_exposed(voxels),
+                       factor, span, palette_set, len(bank), max(bank)))
 
     for r in report:
-        print("level %02d  %-14s voxels=%3d bulk=%.2f set=%d blocks=%d" % r)
-    print("\n%d levels written to %s" % (LEVEL_COUNT, out))
+        print("level %02d  %-14s voxels=%5d (target %4d) exposed=%4d x%.2f span=%2d "
+              "set=%d blocks=%2d maxAmmo=%4d" % r)
+
+    counts = [r[2] for r in report]
+    print("\nvoxels: min=%d max=%d  |  exposed at start (= renderers): min=%d max=%d"
+          % (min(counts), max(counts),
+             min(r[4] for r in report), max(r[4] for r in report)))
+    print("blocks: min=%d max=%d  |  ammo per block: max=%d  |  clear time at 133 cubes/s: %.0f-%.0fs"
+          % (min(r[8] for r in report), max(r[8] for r in report), max(r[9] for r in report),
+             min(counts) / 133.0, max(counts) / 133.0))
+    print("%d LevelAsset .asset files written to %s" % (LEVEL_COUNT, out))
 
 
 if __name__ == "__main__":

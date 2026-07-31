@@ -72,6 +72,7 @@ namespace CubeBlaster
 
             _fx.PlayImpact(position, cube.Color);
             cube.Pop(outward, PopSettings.From(config));
+            _field.Reveal(index);
             _field.PunchAround(index, _cellSize, config);
         }
 

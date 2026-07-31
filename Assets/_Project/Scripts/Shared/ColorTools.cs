@@ -10,6 +10,8 @@ namespace CubeBlaster
         const float InkSwitchLuminance = 0.62f;
         const int JitterSteps = 5;
 
+        public const int JitterVariants = 3;
+
         public static float Luminance(Color c) => 0.299f * c.r + 0.587f * c.g + 0.114f * c.b;
 
         public static Color LabelInk(Color background) =>
@@ -23,10 +25,16 @@ namespace CubeBlaster
             return new Color(c.r * k, c.g * k, c.b * k, c.a);
         }
 
-        public static Color Jitter(Color color, int seed, float hueAmount, float valueAmount)
+        public static int PickJitterVariant(int seed) =>
+            ((seed % JitterVariants) + JitterVariants) % JitterVariants;
+
+        public static float GetJitterOffset(int variant) =>
+            JitterVariants <= 1 ? 0f : variant / ((JitterVariants - 1) * 0.5f) - 1f;
+
+        public static Color Jitter(Color color, int variant, float hueAmount, float valueAmount)
         {
             if (hueAmount <= 0f && valueAmount <= 0f) return color;
-            float t = GetQuantizedOffset(seed);
+            float t = GetJitterOffset(variant);
             Color.RGBToHSV(color, out float h, out float s, out float v);
             h = Mathf.Repeat(h + hueAmount * t, 1f);
             v = Mathf.Clamp01(v * (1f + valueAmount * t));

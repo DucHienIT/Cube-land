@@ -17,10 +17,17 @@ namespace CubeBlaster
         public int targetFrameRate = 60;
 
         [Header("Sculpture")]
-        public float voxelSize = 0.5f;
-        public float voxelGap = 0.035f;
+        [Tooltip("Half what it was before the density pass. A level is now 1000-2000 cubes and " +
+                 "its grid spans ~16-34 cells instead of ~11, so halving the cell keeps the " +
+                 "sculpture at the same WORLD size — which is what every other world-unit knob " +
+                 "(shockwave sizes, popRise, dart arc, camera fit) is tuned against.")]
+        public float voxelSize = 0.25f;
+        public float voxelGap = 0.018f;
 
-        [Header("Cube look (rounded corners + shading)")]
+        [Header("Cube look (shading; corner radius applies to props, not voxels)")]
+        [Tooltip("Bevel of the shared RoundedCube mesh, used by the gun slot rims and bank " +
+                 "blocks. Voxels render on Unity's built-in 12-triangle cube — see the density " +
+                 "pass in CLAUDE.md — so this no longer affects the sculpture.")]
         [Range(0.02f, 0.45f)] public float voxelCornerRadius = 0.16f;
         [Range(2, 3)] public int voxelRoundSegments = 3;
         [Tooltip("Width of the diffuse light transition on voxel bevels only. Higher values remove hard light bands without flattening guns/UI props.")]
@@ -43,14 +50,18 @@ namespace CubeBlaster
 
         [Header("Destruction juice (hit feedback)")]
         public float hitPunchScale = 0.14f;
-        public float hitPunchTime = 0.16f;
-        public float hitPunchRadius = 1.35f;
+        public float hitPunchTime = 0.12f;
+        [Tooltip("Radius in CELLS. Raised with the density (cells are half the size now) but " +
+                 "deliberately not doubled: the same world radius over a denser shell sweeps in " +
+                 "far more neighbours, and every punched cube runs a coroutine and takes a " +
+                 "property block, which drops it out of the SRP batch for the duration.")]
+        public float hitPunchRadius = 1.8f;
         [Tooltip("Seconds a struck cube's neighbours stay tinted toward their hit-flash colour. " +
                  "Keep short (0.05-0.10) — a long flash reads as the object changing colour.")]
         [Range(0f, 0.3f)] public float hitFlashTime = 0.08f;
         [Tooltip("How far the flash lerps a cube toward white. Deliberately partial: a full-white " +
                  "flash erases the block's colour identity and reads as a rendering glitch.")]
-        [Range(0f, 1f)] public float hitFlashIntensity = 0.55f;
+        [Range(0f, 1f)] public float hitFlashIntensity = 0.35f;
 
         [Header("Cube pop (the struck cube's own death animation — spawns nothing)")]
         [Tooltip("Total seconds from hit to gone. Short: the pop has to finish before the next " +
@@ -64,7 +75,7 @@ namespace CubeBlaster
         [Range(0.05f, 0.95f)] public float popSwellPhase = 0.30f;
         [Tooltip("World units the cube drifts away from the sculpture centre while collapsing. " +
                  "Keep small — this is a nudge that reveals what was behind it, not a launch.")]
-        public float popRise = 0.18f;
+        public float popRise = 0.09f;
         [Tooltip("How far the cube flashes toward white as it swells.")]
         [Range(0f, 1f)] public float popFlash = 0.85f;
         [Tooltip("Degrees of tumble over the whole pop. Cheap extra life; 0 disables it.")]
@@ -73,26 +84,33 @@ namespace CubeBlaster
         [Header("Shockwave ring (the ONLY thing a destroy spawns)")]
         [Tooltip("Seconds the ring takes to expand and fade out.")]
         [Range(0.05f, 0.6f)] public float shockwaveTime = 0.22f;
-        public float shockwaveStartSize = 0.6f;
+        public float shockwaveStartSize = 0.3f;
         [Tooltip("Ring diameter at the end, in world units. Around 3x the start reads as a snap; " +
                  "much larger and it drifts across neighbouring cubes as a halo.")]
-        public float shockwaveEndSize = 1.7f;
+        public float shockwaveEndSize = 0.85f;
         [Range(0f, 1f)] public float shockwaveAlpha = 0.72f;
         [Tooltip("World units the ring is pushed along the view ray toward the camera. WITHOUT " +
                  "this the ring spawns level with the cube it replaces and the surrounding cubes " +
                  "z-cull it — measured: completely invisible on anything but an isolated block. " +
                  "Roughly half a voxel is enough to clear the surface it sits on.")]
-        public float shockwaveCameraLift = 0.5f;
+        public float shockwaveCameraLift = 0.25f;
         [Tooltip("How far the ring is bleached toward white from the cube's colour. Fully white " +
                  "loses the link to which block was hit; fully coloured disappears on same-colour cubes.")]
         [Range(0f, 1f)] public float shockwaveWhiten = 0.55f;
         [Tooltip("Size of the pre-instantiated ring pool. Rings are reused oldest-first and never " +
-                 "allocate at runtime, so this is a hard ceiling on simultaneous rings.")]
-        public int shockwaveMaxActive = 16;
+                 "allocate at runtime, so this is a hard ceiling on simultaneous rings. Four guns " +
+                 "at the current fire interval destroy ~60 cubes a second and each ring lives " +
+                 "shockwaveTime, so anything under ~15 recycles rings mid-animation.")]
+        public int shockwaveMaxActive = 40;
 
         [Header("Guns")]
         public int gunSlotCount = 4;
-        public float gunFireInterval = 0.16f;
+        [Tooltip("Cut with the density bumps so a level still clears in a casual 20-60s: four " +
+                 "guns fire ~130 darts a second. This is THE knob that pays for the solid " +
+                 "sculptures — clear time is cubes / (gunSlotCount / gunFireInterval), so it has " +
+                 "to move whenever gen_levels' VOXEL_MIN/MAX move. TimeStarRule's par is derived " +
+                 "from this value; retune both together.")]
+        public float gunFireInterval = 0.03f;
         public float gunSlotSpacing = 1.35f;
         public float gunSlotY = 0f;
         public float gunSlotZ = -2.6f;
@@ -118,7 +136,7 @@ namespace CubeBlaster
         [Range(0.02f, 0.49f)] public float gunPuckRim = 0.14f;
 
         [Header("Darts")]
-        public float dartSpeed = 22f;
+        public float dartSpeed = 28f;
         public float dartLife = 2f;
         public float dartTrailTime = 0.26f;
         public float dartHitScatter = 0.0f;
@@ -129,6 +147,11 @@ namespace CubeBlaster
         public float bankRowSpacing = 0.96f;
         public float bankY = 0f;
         public float bankZ = -4.8f;
+        [Tooltip("How many rows of the bank queue are on screen. A level holds one block per " +
+                 "~60 cubes (49-130+ blocks), far more than fit under the sculpture, so " +
+                 "BankArea shows this many rows and parks the rest one row behind to slide in " +
+                 "as the queue advances. Raising it runs the bank off the bottom of the frame — " +
+                 "cameraFitBottomY is what it has to stay inside.")]
         public int bankVisibleRows = 3;
 
         [Header("Rotation (drag only — the structure never spins by itself)")]
@@ -139,6 +162,12 @@ namespace CubeBlaster
         public float cameraPitch = 75f;
         public float cameraFov = 32f;
         public float cameraFitBottomY = -5.2f;
+        [Tooltip("World units of clear space reserved ABOVE the sculpture. The HUD's level title " +
+                 "and progress bar sit there and the framing solver cannot see them, so without " +
+                 "a real margin a tall sculpture renders straight through the text — which every " +
+                 "level does now that they are all 1000-2000 cubes. This used to borrow " +
+                 "cameraFitPadding, which is also a multiplier and so could not be raised alone.")]
+        public float cameraTopMargin = 3.2f;
 
         [Header("Feel / Timing")]
         public float winPopupDelay = 0.7f;

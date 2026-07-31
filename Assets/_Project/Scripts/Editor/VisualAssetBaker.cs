@@ -17,6 +17,7 @@ namespace CubeBlaster.EditorTools
         const string TexDir = ArtDir + "/Textures";
         const string MatDir = ArtDir + "/Materials";
         const string VoxelMatDir = MatDir + "/Voxels";
+        const string VoxelJitterMatDir = VoxelMatDir + "/Jitter";
         const string PrefabDir = "Assets/_Project/Prefabs";
         const string FxPrefabDir = PrefabDir + "/Fx";
         const string LibraryPath = "Assets/_Project/Resources/Config/VisualLibrary.asset";
@@ -30,6 +31,13 @@ namespace CubeBlaster.EditorTools
         static readonly Color LabelShadowColor = new Color(0.055f, 0.075f, 0.145f, 0.55f);
         static readonly Vector2 BankLabelFit = new Vector2(0.72f, 0.72f);
         const float BankLabelSize = 0.105f;
+
+        // Ammo is three digits now that a bank block carries 70-220 darts, so the gun label
+        // auto-sizes against the body face exactly like the bank block does. A fixed size can
+        // only ever be right for one digit count.
+        static readonly Vector2 GunLabelFit = new Vector2(0.62f, 0.50f);
+        const float GunLabelSize = 0.070f;
+        const float LabelAutoSizeMin = 0.5f;
 
         static bool _force;
 
@@ -69,14 +77,8 @@ namespace CubeBlaster.EditorTools
                 int materialCount = 0;
                 for (int set = 0; set < 4; set++)
                 {
-                    var colors = PaletteConfig.Active.GetVoxelSet(set);
-                    for (int slot = 0; slot < colors.Length; slot++)
-                    {
-                        Color voxelColor = colors[slot];
-                        BakeMaterial(string.Format("{0}/Voxel_S{1}_C{2}.mat", VoxelMatDir, set, slot),
-                            m => SetupVoxelToon(m, voxelColor, edgeTex));
-                        materialCount++;
-                    }
+                    var built = BakeVoxelMaterialSet(set, edgeTex);
+                    materialCount += built.colors.Length + built.jitter.Length;
                 }
 
                 AssetDatabase.SaveAssets();
@@ -150,15 +152,7 @@ namespace CubeBlaster.EditorTools
                 alwaysRebuild: true);
 
             var voxelSets = new List<VisualLibrary.MaterialSet>();
-            for (int set = 0; set < 4; set++)
-            {
-                var pal = PaletteConfig.Active.GetVoxelSet(set);
-                var mats = new Material[pal.Length];
-                for (int slot = 0; slot < pal.Length; slot++)
-                    mats[slot] = BakeMaterial(string.Format("{0}/Voxel_S{1}_C{2}.mat", VoxelMatDir, set, slot),
-                        m => SetupVoxelToon(m, pal[slot], edgeTex));
-                voxelSets.Add(new VisualLibrary.MaterialSet { colors = mats });
-            }
+            for (int set = 0; set < 4; set++) voxelSets.Add(BakeVoxelMaterialSet(set, edgeTex));
 
             Material gunPart = BakeMaterial(MatDir + "/GunPart.mat", m => SetupToon(m, Color.white, null));
             Material gunHole = BakeMaterial(MatDir + "/GunHole.mat", m =>
@@ -204,11 +198,18 @@ namespace CubeBlaster.EditorTools
 
             Mesh sphere = Resources.GetBuiltinResource<Mesh>("New-Sphere.fbx");
             Mesh quad = Resources.GetBuiltinResource<Mesh>("Quad.fbx");
+
+            // Voxels render on Unity's built-in cube — 12 triangles against RoundedCube's ~700.
+            // A level is 1000-2000 cubes, so the bevel that sells a hero prop up close costs
+            // over a million triangles on the sculpture while spanning a couple of pixels.
+            // The props (slot rims, bank blocks) are a handful of objects seen large and keep
+            // the rounded mesh.
+            Mesh unitCube = Resources.GetBuiltinResource<Mesh>("Cube.fbx");
             TMP_FontAsset font = AssetDatabase.LoadAssetAtPath<TMP_FontAsset>(FontPath);
 
             Shockwave shockwave = BakeShockwavePrefab(quad, fxRing);
 
-            BakeVoxelCubePrefab(rounded, voxelSets[0].colors[0]);
+            BakeVoxelCubePrefab(unitCube, voxelSets[0].colors[0]);
             BakeDartPrefab(sphere, dartBullet, dartTrail);
             BakeGunPrefab(rounded, gunBody, gunPuck, gunPart, gunHole, font, labelMat);
             BakeGunSlotPrefab(rounded, slotPad, gunHole);
@@ -243,6 +244,7 @@ namespace CubeBlaster.EditorTools
             EnsureFolder(ArtDir, "Textures");
             EnsureFolder(ArtDir, "Materials");
             EnsureFolder(MatDir, "Voxels");
+            EnsureFolder(VoxelMatDir, "Jitter");
             EnsureFolder(PrefabDir, "Fx");
         }
 
@@ -569,6 +571,71 @@ namespace CubeBlaster.EditorTools
             if (mat.HasProperty("_SpecularToonSmoothness")) mat.SetFloat("_SpecularToonSmoothness", cfg.toonSpecSmoothing);
         }
 
+        /// Bakes one palette set's voxel materials: the per-slot base .mat plus the per-block
+        /// colour-jitter variants of each.
+        ///
+        /// The jitter used to be a MaterialPropertyBlock written onto every cube. A property
+        /// block evicts its renderer from the SRP Batcher, which was free at 450 cubes and is
+        /// not at 2000 — it means a full material bind per cube, every frame. Separate .mat
+        /// assets sharing one shader stay in a single batch, so the variation is baked instead.
+        static VisualLibrary.MaterialSet BakeVoxelMaterialSet(int set, Texture2D edgeTex)
+        {
+            var cfg = GameConfig.Active;
+            var palette = PaletteConfig.Active.GetVoxelSet(set);
+            var colors = new Material[palette.Length];
+            var jitter = new Material[palette.Length * ColorTools.JitterVariants];
+
+            for (int slot = 0; slot < palette.Length; slot++)
+            {
+                Color baseColor = palette[slot];
+                colors[slot] = BakeMaterial(string.Format("{0}/Voxel_S{1}_C{2}.mat", VoxelMatDir, set, slot),
+                    m => SetupVoxelToon(m, baseColor, edgeTex));
+
+                for (int variant = 0; variant < ColorTools.JitterVariants; variant++)
+                {
+                    int index = slot * ColorTools.JitterVariants + variant;
+                    float offset = ColorTools.GetJitterOffset(variant);
+                    if (Mathf.Approximately(offset, 0f))
+                    {
+                        jitter[index] = colors[slot];
+                        continue;
+                    }
+                    jitter[index] = BakeVoxelJitterMaterial(
+                        string.Format("{0}/Voxel_S{1}_C{2}_J{3}.mat", VoxelJitterMatDir, set, slot, variant),
+                        colors[slot],
+                        ColorTools.Jitter(baseColor, variant, cfg.voxelHueJitter, cfg.voxelValueJitter));
+                }
+            }
+            return new VisualLibrary.MaterialSet { colors = colors, jitter = jitter };
+        }
+
+        /// A jitter variant has nothing hand-editable of its own — it is "the slot material,
+        /// one quantised shade off" — so it is re-derived from its source on EVERY bake rather
+        /// than skipped when it already exists. That is what lets the hand-held white voxel
+        /// materials (see the art passes in CLAUDE.md) carry their edits into their variants
+        /// without a Force Rebake All resetting every other material.
+        static Material BakeVoxelJitterMaterial(string path, Material source, Color shade)
+        {
+            if (source == null) return null;
+
+            var mat = AssetDatabase.LoadAssetAtPath<Material>(path);
+            if (mat == null)
+            {
+                mat = new Material(source);
+                AssetDatabase.CreateAsset(mat, path);
+            }
+            else
+            {
+                mat.shader = source.shader;
+                mat.CopyPropertiesFromMaterial(source);
+            }
+
+            SetBaseColor(mat, shade);
+            mat.enableInstancing = true;
+            EditorUtility.SetDirty(mat);
+            return mat;
+        }
+
         static void SetupVoxelToon(Material mat, Color color, Texture2D tex)
         {
             SetupToon(mat, color, tex);
@@ -595,6 +662,7 @@ namespace CubeBlaster.EditorTools
                 "TCP2_REFLECTIONS", "TCP2_REFLECTIONS_FRESNEL"
             };
             foreach (string keyword in hardHighlightKeywords) mat.DisableKeyword(keyword);
+            mat.enableInstancing = true;
         }
 
         static void SetupCoolDarkToon(Material mat, Color highlight, Color shadow, Color specular)
@@ -731,7 +799,7 @@ namespace CubeBlaster.EditorTools
             {
                 tm.enableAutoSizing = true;
                 tm.fontSizeMax = size * 64f;
-                tm.fontSizeMin = size * 64f * 0.55f;
+                tm.fontSizeMin = size * 64f * LabelAutoSizeMin;
             }
 
             if (font != null) tm.font = font;
@@ -867,8 +935,8 @@ namespace CubeBlaster.EditorTools
                     new Vector3(0f, bodyY - size.y * 0.26f, -size.z * 0.5f - 0.04f), Quaternion.identity,
                     new Vector3(size.x * 0.24f, size.y * 0.20f, 0.12f));
 
-                var label = AddLabel(root.transform, "0", 0.066f, font, labelMat, 0.80f,
-                    new Vector3(0f, groundY + bodyY, 0f));
+                var label = AddLabel(root.transform, "0", GunLabelSize, font, labelMat, 0.80f,
+                    new Vector3(0f, groundY + bodyY, 0f), GunLabelFit);
 
                 var gun = root.GetComponent<Gun>();
                 SetRef(gun, "bodyPivot", rig);

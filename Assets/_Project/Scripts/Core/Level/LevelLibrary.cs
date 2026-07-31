@@ -2,7 +2,7 @@ namespace CubeBlaster
 {
     public static class LevelLibrary
     {
-        static ILevelSource _primary = new ResourceLevelSource();
+        static ILevelSource _primary = new LevelAssetSource();
         static ILevelSource _fallback = new ProceduralLevelSource();
 
         public static void Use(ILevelSource primary, ILevelSource fallback = null)

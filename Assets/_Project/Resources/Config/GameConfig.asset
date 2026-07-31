@@ -13,8 +13,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   targetFrameRate: 60
-  voxelSize: 0.5
-  voxelGap: 0.035
+  voxelSize: 0.25
+  voxelGap: 0.018
   voxelCornerRadius: 0.16
   voxelRoundSegments: 3
   voxelLightRampSmoothing: 0.42
@@ -31,25 +31,25 @@ MonoBehaviour:
   sculptureRestYaw: 26
   sculptureFillWidth: 0.68
   hitPunchScale: 0.14
-  hitPunchTime: 0.16
-  hitPunchRadius: 1.35
+  hitPunchTime: 0.12
+  hitPunchRadius: 1.8
   hitFlashTime: 0.08
-  hitFlashIntensity: 0.55
+  hitFlashIntensity: 0.35
   popTime: 0.17
   popSwell: 0.3
   popSwellPhase: 0.3
-  popRise: 0.18
+  popRise: 0.09
   popFlash: 0.85
   popSpin: 70
   shockwaveTime: 0.22
-  shockwaveStartSize: 0.6
-  shockwaveEndSize: 1.7
+  shockwaveStartSize: 0.3
+  shockwaveEndSize: 0.85
   shockwaveAlpha: 0.72
-  shockwaveCameraLift: 0.5
+  shockwaveCameraLift: 0.25
   shockwaveWhiten: 0.55
-  shockwaveMaxActive: 16
+  shockwaveMaxActive: 40
   gunSlotCount: 4
-  gunFireInterval: 0.16
+  gunFireInterval: 0.03
   gunSlotSpacing: 1.35
   gunSlotY: 0
   gunSlotZ: -2.6
@@ -62,7 +62,7 @@ MonoBehaviour:
   gunBarrelRadius: 0.228
   gunPuckSides: 20
   gunPuckRim: 0.14
-  dartSpeed: 22
+  dartSpeed: 28
   dartLife: 2
   dartTrailTime: 0.26
   dartHitScatter: 0
@@ -72,13 +72,12 @@ MonoBehaviour:
   bankY: 0
   bankZ: -4.8
   bankVisibleRows: 3
-  autoRotateSpeed: 16
   rotateSensitivity: 0.3
-  autoRotateDelay: 1.6
   cameraOrthographic: 0
   cameraPitch: 75
   cameraFov: 32
   cameraFitBottomY: -4.5
+  cameraTopMargin: 3.2
   winPopupDelay: 0.7
   cameraFitPadding: 1.06
   shakeOnHit: 0

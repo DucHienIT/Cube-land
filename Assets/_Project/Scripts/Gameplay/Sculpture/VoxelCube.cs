@@ -22,9 +22,10 @@ namespace CubeBlaster
 
         public Color Color { get; private set; }
 
-        public void Initialize(Material material, Color color, VoxelStyle style)
+        public void Initialize(Material material, Color color, Color renderColor, VoxelStyle style)
         {
             Color = color;
+            _renderColor = renderColor;
 
             int seed = PositionSeed(transform.localPosition);
             float wobble = 1f + ColorTools.GetQuantizedOffset(seed >> 3) * style.ScaleJitter;
@@ -33,8 +34,7 @@ namespace CubeBlaster
 
             if (meshRenderer == null) return;
             if (material != null) meshRenderer.sharedMaterial = material;
-            _renderColor = ColorTools.Jitter(color, seed, style.HueJitter, style.ValueJitter);
-            _tinter.Apply(meshRenderer, _renderColor);
+            _tinter.Clear(meshRenderer);
         }
 
         public void Punch(PunchSettings settings)
@@ -79,7 +79,7 @@ namespace CubeBlaster
             if (!_popped)
             {
                 transform.localScale = _baseScale;
-                if (flashing) _tinter.Apply(meshRenderer, _renderColor);
+                if (flashing) _tinter.Clear(meshRenderer);
             }
             _punch = null;
         }
@@ -114,11 +114,11 @@ namespace CubeBlaster
 
         void ApplyFlash(float amount)
         {
-            _tinter.Apply(meshRenderer,
-                amount > 0f ? UnityEngine.Color.Lerp(_renderColor, UnityEngine.Color.white, amount) : _renderColor);
+            if (amount <= 0f) _tinter.Clear(meshRenderer);
+            else _tinter.Apply(meshRenderer, UnityEngine.Color.Lerp(_renderColor, UnityEngine.Color.white, amount));
         }
 
-        static int PositionSeed(Vector3 localPosition) =>
+        public static int PositionSeed(Vector3 localPosition) =>
             Mathf.RoundToInt(localPosition.x * HashQuantization) * HashX
             ^ Mathf.RoundToInt(localPosition.y * HashQuantization) * HashY
             ^ Mathf.RoundToInt(localPosition.z * HashQuantization) * HashZ;

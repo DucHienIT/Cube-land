@@ -79,3 +79,7 @@ crashlytics-build.properties
 .idea/
 .DS_Store
 Thumbs.db
+
+# Python bytecode cache (Tools/gen_levels.py)
+__pycache__/
+*.pyc

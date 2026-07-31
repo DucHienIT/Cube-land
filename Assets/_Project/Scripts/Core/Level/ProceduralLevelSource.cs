@@ -5,9 +5,11 @@ namespace CubeBlaster
 {
     public sealed class ProceduralLevelSource : ILevelSource
     {
-        const int MinSide = 3;
-        const int MaxExtraSide = 4;
-        const int Depth = 2;
+        // Sized to the same several-thousand-cube contract the authored levels hold to, so
+        // running with no content in Resources/Levels still exercises the real load.
+        const int MinSide = 22;
+        const int MaxExtraSide = 8;
+        const int Depth = 6;
         const int ColorCount = 4;
         const int BlocksPerColor = 3;
 
