@@ -58,8 +58,8 @@ Scripts/
 │   └── Scoring/            IStarRule, TimeStarRule
 ├── Gameplay/               MonoBehaviours + the plain classes they compose
 │   ├── Flow/               GameBootstrap, GameManager, GameState, GameplayContracts
-│   ├── Sculpture/          SculptureView, SculptureLayout, VoxelCubeField, VoxelCube, VoxelStyle, Turntable, CameraVoxelVisibility
-│   ├── Shooting/           Gun, GunSlot, RecoilSpring, Dart, DartArc
+│   ├── Sculpture/          SculptureView, SculptureLayout, VoxelCubeField, VoxelGroupTable, VoxelPopPool, VoxelStyle, Turntable, CameraVoxelVisibility
+│   ├── Shooting/           Gun, GunSlot, RecoilSpring, DartField, DartArc
 │   ├── Bank/               BankArea, BankBlock
 │   ├── Destruction/        Shockwave (the one pooled FX object a destroy spawns)
 │   ├── Input/              BoardInput + the IPointerGesture strategies
@@ -68,7 +68,7 @@ Scripts/
 │   ├── Audio/  ├── Save/  └── Fx/
 ├── UI/                     UIController, IUIHost, IUIScreen, UIScreen
 │   ├── Screens/  ├── Effects/  └── Toolkit/   (UIFactory, SpriteFactory)
-├── Shared/                 tiny reusable primitives only: ColorTools, Ease, RendererTinter, ColliderRegistry
+├── Shared/                 tiny reusable primitives only: ColorTools, Ease, RendererTinter, ColliderRegistry, MeshInstanceBatcher
 └── Editor/                 VisualAssetBaker
 ```
 
@@ -128,8 +128,11 @@ orchestrator owes each feature.
   here.**
   `VisualLibrary` is the hub of ALL baked visual assets and *only* that: per-palette voxel materials
   (`voxelSets[set].colors[slot]`) and their per-block jitter variants
-  (`voxelSets[set].jitter[slot * ColorTools.JitterVariants + variant]`), fixed materials
-  (slotPad/dartBullet/dartTrail), the Shockwave prefab. The colour *policy* it used to carry moved to
+  (`voxelSets[set].jitter[slot * ColorTools.JitterVariants + variant]`), their hit-flash shades
+  (`voxelSets[set].flash[...]`) and their darts (`voxelSets[set].dart` = bullet,
+  `.dartStreak` = tail), the two
+  built-in meshes the instanced draws use (`voxelMesh` = cube, `dartMesh` = quad), fixed materials
+  (slotPad/dartBullet), the Shockwave prefab. The colour *policy* it used to carry moved to
   `Shared/ColorTools` (`Jitter`/`PickJitterVariant` = quantized per-block variation, `LabelInk` =
   the one ink every ammo number uses, `ClampBrightness`) and `Shared/RendererTinter` (the MaterialPropertyBlock helper — props are
   tinted via MPB so shared .mat assets are never instanced/modified; the block is created lazily
@@ -148,18 +151,21 @@ orchestrator owes each feature.
   No-auto-spin pass), `GetWorldPos` is live so darts still track voxels while the player turns
   them — and the view fires one `IFxService.PlayImpact`
   per destroy; the view itself only wires them and forwards
-  `ISculptureSpace`/`ISpinnable`), `VoxelCube` (jitter/punch/flash/pop; styled by a `VoxelStyle`
-  + `PunchSettings` struct instead of reading config itself),
+  `ISculptureSpace`/`ISpinnable`), `VoxelCubeField` + `MeshInstanceBatcher` + `VoxelGroupTable` +
+  `VoxelPopPool` (**cubes are not GameObjects** — jitter/punch/flash/pop are arrays of state drawn
+  through `Graphics.DrawMeshInstanced`, see the Instanced-voxel pass),
   `Gun` (auto-fires; visual subtree authored in the prefab, `Initialize` only tints via MPB; recoil lives
   in `RecoilSpring`), `GunSlot`,
-  `Dart` (re-targets the voxel's live position each frame; flies a cubic-bezier arc that **leaves
+  `DartField` (**darts are not GameObjects either** — one struct array, one instanced draw per
+  colour, ticked from `GameManager.Update`; see the Instanced-dart pass. Each dart re-targets the
+  voxel's live position every frame and flies a cubic-bezier arc that **leaves
   along the barrel axis** — `Gun` passes `barrelTip.forward` through `GameManager.SpawnDart` — then
   dives in along the validated camera ray, so it never pierces other cubes; `dartApproachOffset`
   tunes the arc. Do NOT put the first control point behind the muzzle: it used to be
   `_start + back*offset`, and under the 75° camera world −Z projects DOWN-screen, so every dart shot
   backwards out of frame and crossed back over its own cannon — user-visible as "đạn không bay từ
-  nòng ra". Fixed 2026-07-21. The arc math now lives in the pure `DartArc` struct — change control
-  points there, not in `Dart`), `BankBlock` (draggable; only stack row 0 is playable — `Row` property, back rows dimmed;
+  nòng ra". Fixed 2026-07-21. The arc math lives in the pure `DartArc` struct — change control
+  points there, not in `DartField`), `BankBlock` (draggable; only stack row 0 is playable — `Row` property, back rows dimmed;
   raycast hits resolve through the generic `ColliderRegistry<T>`),
   `BankArea` (reference-style vertical stacks: queued rows sit flush below the playable row via
   `bankRowSpacing`), `BoardInput` (new Input System; it is only a *router* — the two behaviours are
@@ -206,8 +212,11 @@ went from 35.9% → 64.1% of screen width. Tall thin shapes (level 1) gain less 
   is settable so a test/scene can swap in `NullFxService`.
 - `UI/Toolkit/` — `SpriteFactory` (SDF rounded-rect/circle/star UI sprites) + `UIFactory`.
 - `Shared/` — small reusable primitives ONLY, nothing game-specific: `ColorTools`, `RendererTinter`,
-  `Ease` (the punch, pop-in and settle curves all come from `Ease`) and the generic
-  `ColliderRegistry<T>`. If a class knows about guns, voxels or levels it does not belong here.
+  `Ease` (the punch, pop-in and settle curves all come from `Ease`), the generic
+  `ColliderRegistry<T>` and `MeshInstanceBatcher` (matrices bucketed per material, one
+  `Graphics.DrawMeshInstanced` per bucket — it lives here because BOTH the sculpture and the dart
+  swarm submit through it; it knows nothing about either). If a class knows about guns, voxels or
+  levels it does not belong here.
   (The old `Look`/`WorldLabel` runtime-procedural material/mesh/label builders were REMOVED — all
   of that is baked into assets by the Visual Asset Baker, see below.)
 
@@ -275,7 +284,7 @@ below); 0 removed the cavity entirely. Same-color cubes get a *light* quantized
 per-block jitter (`ColorTools.Jitter`, hue 0.02 / value 0.04 — lighting, not random color,
 carries the shading) served as **baked material variants, never a MaterialPropertyBlock** (see the
 Density pass), plus a ±2% size wobble
-(`voxelScaleJitter`); `VoxelCube.Color` keeps the exact base color for gameplay/FX tints. Both the
+(`voxelScaleJitter`); `VoxelCubeField.GetColor` keeps the exact base color for gameplay/FX tints. Both the
 built-in cube and RoundedCube have per-face 0..1 UVs; voxel materials sample the EdgeSheen texture — a plastic tile with a soft
 off-center gaussian sheen blob (plate 0.90 → 1.0 at the blob, sigma 0.34, rim 0.90, band 0.08)
 that fakes a broad premium-gloss highlight on every face. Deliberately subtle: any strong dark rim
@@ -421,7 +430,9 @@ The bank digits were fat, soft and low-contrast. Four causes, all fixed in
 
 **Dart-geometry pass (2026-07-31).** User: *"khi đặt các bank lên slot để bắn các khối cube thì số
 lượng tris tăng lên, check vì sao?"* Measured on level 30: **72k triangles at rest, 173k mid-barrage**
-(2.4x). Where the extra 101k came from, and what it says about where to look next:
+(2.4x). Where the extra 101k came from, and what it says about where to look next. **The dart half
+of this is history — the Instanced-dart pass below removed the dart GameObject entirely, and with
+it the bullet renderer, the trail and `DartDot.png`; the gun-mesh findings still stand:**
 - **~69k of it was the dart bullets.** The bullet was Unity's built-in `New-Sphere.fbx` at **768
   triangles**, and four guns at `gunFireInterval` 0.03 keep **~90 darts in the air** (133/s × ~0.65s
   of flight). That is **2.6x the entire 2179-cube sculpture** (26k tris) for balls that render a
@@ -446,6 +457,88 @@ lượng tris tăng lên, check vì sao?"* Measured on level 30: **72k triangles
   100 darts — that is what takes setPass from 61 to ~200. Pool the darts and tint them with baked
   materials if that ever needs to come down.
 
+**WebGL draw-call pass (2026-07-31).** Target is a **WebGL build**, which changes what the desktop
+numbers mean: WebGL is single-threaded (the render thread's work folds into main) and each draw
+crosses the JS/WASM → browser-GL boundary, so per-draw cost is several times native. Triangles were
+never the issue — GPU sat at ~2ms with 70k tris. **Draw calls are.** Measured on level 30, 2188 voxel
+renderers:
+- **Voxels no longer cast shadows** (`GameConfig.voxelCastShadows` — it was baked into
+  VoxelCube.prefab at the time; the Instanced-voxel pass below made it a per-frame draw argument, so
+  it no longer needs a re-bake). **batches 4215 → 2347, tris 86.6k → 65.2k, shadow casters 1106 → 63**
+  (only the guns/slots/bank still cast). The sculpture loses its own self-shadowing — undersides of
+  overhangs go flatter — which is why an earlier pass kept it; SSAO covers enough of the cavity read
+  that at this cube size the screenshots are near-identical. Set it back to true for a
+  desktop/TV-only build.
+- **Probes are off on voxels too.** Not cosmetic: per-renderer probe data is one of the things that
+  stops Unity merging renderers into instanced draws. The scene has no baked probes (ambient is
+  Trilight, zero LightProbeGroups — checked), so nothing is lost.
+- **GPU instancing works now, and it is the reason the jitter-material change matters more than it
+  first appeared.** With the SRP Batcher disabled (the situation on any platform that lacks it),
+  instancing collapses **2188 cubes into 87 draw calls**. That only works because voxels carry no
+  MaterialPropertyBlock at rest. All 72 voxel materials now have `enableInstancing`.
+- **But the punch-flash MPB shreds it.** Mid-barrage on the instancing path, setPass went **59 → 299**:
+  every flashing cube takes a property block, drops out of the instanced batch, and costs a full
+  material bind. On the SRP Batcher path the same scene is setPass 57. **This was called out as the
+  next lever, and the Instanced-voxel pass below took it** — the flash is baked shades now.
+- **Do not trust frame-time numbers taken through the MCP harness.** The auto-deploy driver used for
+  these runs calls `FindObjectsOfType` every editor tick, which dominates the main thread and made
+  timings swing 8-24ms independently of the rendering change. UnityStats counts (batches, setPass,
+  tris) are unaffected and are what the numbers above rest on. Also note the Statistics window's
+  "CPU: main" **includes the wait for `targetFrameRate`** — at 60 fps it reads ~15.7ms no matter how
+  little work the frame does; uncap before reading it.
+
+**Instanced-voxel pass (2026-07-31) — voxels have no GameObjects at all.** Offered as one of five
+draw-call options; the user picked this one. The sculpture is ~93% of the frame's draw calls and it
+was one renderer per exposed cube — this is the only change that touches that number. **A cube is now
+an entry in a struct array**: `VoxelCubeField` holds position/scale/group/punch state,
+`SculptureView.LateUpdate` ticks it, and `VoxelInstanceBatcher` submits the matrices grouped by
+material through `Graphics.DrawMeshInstanced`. Deleted with it: the `VoxelCube` MonoBehaviour,
+`VoxelCube.prefab`, `SculptureView.voxelPrefab`, and every runtime MaterialPropertyBlock on a voxel.
+- **Grouping IS the batching, so per-cube colour is not a tuning choice — it is impossible.** Two
+  cubes share a draw call exactly when they share a material. TCP2 Hybrid carries
+  `#pragma multi_compile_instancing` (so transforms instance fine) but declares `_BaseColor` in the
+  `UnityPerMaterial` CBUFFER, **not** in an instancing buffer — checked in the shader source — so a
+  per-instance colour array would be silently ignored. Every shade a cube can take therefore has to
+  be a real material. That is why the jitter was already baked (Density pass) and why the flash is
+  now baked too, in `Art/Materials/Voxels/Flash/Voxel_S{set}_C{slot}_F{level}.mat`.
+- **The flash is quantised to `ColorTools.FlashLevels` (3) shades, 0.3 apart.** Both callers land
+  almost exactly on a step — `hitFlashIntensity` 0.35 → level 1 (0.30), `popFlash` 0.85 → level 3
+  (0.90) — so the look is unchanged. It deliberately stops at 0.90 and never reaches pure white; see
+  the blowout passes. Adding any new per-cube visual state means adding a material group, never a
+  property block.
+- **A destroy now allocates nothing whatsoever.** `VoxelPopPool` is a fixed ring of
+  `GameConfig.popMaxActive` (96) animation states — the pop plays in world space so it stops
+  following the turntable, exactly as the old detached GameObject did. Before this, four guns at
+  `gunFireInterval` 0.03 meant well over a hundred `Destroy` calls a second feeding the GC, which
+  matters far more on WebGL than natively.
+- **This fixed a latent bug in the pop, so hits read punchier than before.** `VoxelCube.Pop` did
+  `SetParent(null, worldPositionStays: true)`, which rewrites `localScale` to preserve world size —
+  0.25 local under a root at `sculptureScale` 1.55 becomes 0.3875. But `PopRoutine` then assigned
+  `_baseScale * swell`, and `_baseScale` was the *pre-detach local* 0.25. So every cube snapped to
+  64% the instant it was hit and "swelled" from there to 0.83× its original size — the swell that is
+  supposed to BE the impact was actually a shrink. The pool multiplies by `lossyScale` explicitly,
+  so the swell now reads as a swell. If hits feel too strong, `popSwell` is the knob, not this.
+- **`PunchAround` walks the grid neighbourhood, not the voxel array.** It used to scan all
+  `grid.Count` entries per destroy — on a 7815-cube level at ~133 destroys/s that is a million array
+  iterations a second, which would have eaten most of what this pass bought back. The radius is
+  stated in CELLS, so the integer box of `ceil(hitPunchRadius)` around the epicentre provably
+  contains every candidate: 125 dictionary lookups instead of 7815 compares, same result.
+- **Traps, in the order they will bite:**
+  - `Graphics.DrawMeshInstanced` draws for **one frame only**. If `SculptureView.LateUpdate` stops
+    running, the sculpture is simply invisible with no error. (The No-auto-spin pass had deleted
+    `SculptureView.Update` because nothing needed a per-frame tick — this is why there is one again.)
+  - **1023 instances per call** is a hard Unity limit. `MeshInstanceBatcher` slices past it through
+    a scratch buffer; a single palette slot rarely gets there because the jitter splits it three ways.
+  - **This change needs a re-bake.** The flash materials and `VisualLibrary.voxelMesh` do not exist
+    until `Tools ▸ Cube Blaster ▸ Bake Visual Assets` runs. Both paths fall back (unflashed material,
+    built-in cube), so the symptom is "hits stopped flashing", not a crash — which is exactly the
+    kind of thing that ships unnoticed.
+  - `voxelCastShadows` is now a per-frame draw argument, so flipping it no longer needs a bake.
+- **Measured in Play mode on 2026-07-31** (level 20, 4543 cubes, 1445 of them exposed and drawn):
+  **98 batches / 44 setPass at rest, 174 / 78 during a four-gun barrage**, 1475 renderers collapsed
+  into instanced draws. `UnityEditor.UnityStats` is what these come from — see the verification trap
+  in the Instanced-dart pass before trusting a screenshot instead.
+
 **Dart-streak pass (2026-07-31, follow-up).** User: *"trail của viên đạn đang hơi đậm và hơi dài."*
 It was a regression from the density pass: **the streak's length is `dartTrailTime * dartSpeed`, and
 raising `dartSpeed` 22 → 28 lengthened it without anyone touching the time.** At 0.26s that is 7.3
@@ -460,6 +553,60 @@ with ~90 darts up they merged into solid white ribbons over the object.
   read as a *dotted chain* — the dots dominated their own tails. Now width 0.16 against a 0.22
   bullet, which reads as tracer fire. Matching them exactly goes the other way: a ribbon with a bead
   stuck on the end.
+
+**Instanced-dart pass (2026-07-31) — darts have no GameObjects either.** The same change the
+sculpture got, applied to the other half of the frame's draw calls: the Dart-geometry pass had left
+"pool the darts and tint them with baked materials" as the named next lever, and this is it.
+**`Dart.cs`, `Dart.prefab`, `DartDot.png` and `DartTrail.mat` are gone**; a dart is an entry in
+`DartField`'s struct array, and the whole swarm is one `Graphics.DrawMeshInstanced` per colour
+through the shared `MeshInstanceBatcher`. The flight itself is unchanged — the arc, the dive, the
+per-frame re-target and `DartArc` are ported line for line.
+- **A dart is TWO quads: a round camera-facing bullet (`DartDot.png`, `dartBulletSize` 0.22) and a
+  tapering tail behind it (`DartStreak.png`, `dartTrailWidth` × `dartTrailTime * dartSpeed`).** Per
+  dart that is **4 triangles and 0 extra draw calls** against a bullet renderer with a property
+  block plus a trail renderer, which was ~200 extra draws at 90 darts.
+- **It was first built as ONE stretched quad with the head painted into the streak, and that was
+  wrong** — user: *"gun đang bắn những tia thay vì là circle, và trail có vẻ cũng đang bị hỏng"*.
+  The tail quad is ~19:1, and whatever shares it is stretched with it: a head that looks round on
+  screen would have to be ~1 texel tall in the tile. Decoupling the blob's width and height inside
+  the texture only trades one artifact for another. **The bullet has to be its own square,
+  camera-aligned quad** — which costs one extra material per colour and nothing else.
+- **The tail's +Y runs along the heading, widest end at the bullet, placed half a length behind
+  it**, with its normal being the view ray's component perpendicular to the heading — a plain
+  billboard (copying the camera's rotation, as `Billboard` does, which IS what the bullet uses)
+  would twist the tail off its own flight path. `dartTrailTime` also gates the length while the
+  dart is younger than it, because the old trail grew from nothing and a full-length tail popping
+  out of the muzzle reads as a flash.
+- **Colour is a baked material per palette slot and per part** —
+  `Art/Materials/Darts/Dart_S{set}_C{slot}.mat` (bullet, opaque) and `DartTrail_S{set}_C{slot}.mat`
+  (tail, `PaletteConfig.dartTrail.a`), wired into `VisualLibrary.voxelSets[set].dart` /
+  `.dartStreak`. Same reason as the voxel jitter and flash: grouping IS the batching, so a per-dart
+  `MaterialPropertyBlock` would put every dart back in a draw call of its own. Two draws per colour
+  on screen, whatever the dart count. Re-bake after changing the alpha — it is baked in.
+- **URP 14's Unlit shader has NO premultiplied-alpha path, and assuming it did is what produced
+  the white squares.** The old bullet/trail were `Sprites/Default`, whose *shader* does
+  `c.rgb *= c.a`, so the hardware blend `One OneMinusSrcAlpha` is correct there. `UnlitForwardPass.hlsl`
+  only calls `AlphaModulate`, a no-op unless `_ALPHAMODULATE_ON` (the MULTIPLY blend mode) is set —
+  there is no `_ALPHAPREMULTIPLY_ON` in that shader at all. With the premultiplied HW blend and an
+  un-premultiplied source, **every fully transparent pixel of the quad adds its full rgb**: the
+  bullets rendered as solid white squares and the tails as solid bars. The dart materials use a
+  straight `SrcAlpha OneMinusSrcAlpha` blend. Straight alpha is dimmer than the old near-additive
+  trail, which is why `dartTrail.a` went 0.55 → **0.72** to land back on the same read.
+- **The array grows, it never recycles.** `VoxelPopPool` overwrites its oldest entry when it
+  overflows because a cut-short pop costs nothing; a dart that vanished before resolving its hit
+  would leave a voxel with no ammo left to break it, and the levels ship with **exact** ammo. A
+  barrage settles at ~92 darts against the initial 128 slots, so it never actually grows.
+- **Verified end to end on both geometry modes**: levels 20 (revolved, 4543 cubes), 6 (watermelon,
+  `flat`, 3372) and 16 (rocket, 4384) each auto-played to `state=Won, alive=0, bankLeft=0,
+  gunAmmoLeft=0` — every one of ~12,300 darts resolved its hit, and `ExposedTargetSelector`'s
+  reservation set measured empty afterwards, which is the thing to check first if a level ever
+  stalls with ammo left.
+- **Verification trap, cost half an hour:** `manage_camera screenshot` over MCP renders the camera
+  **mid-frame**, so it misses everything submitted in `LateUpdate` — the sculpture came back
+  completely invisible while the darts (submitted from `GameManager.Update`) rendered fine. Nothing
+  was wrong: `UnityStats` showed 61k triangles and 98 batches that same frame. Use
+  `ScreenCapture.CaptureScreenshot` from `execute_code` for anything drawn with
+  `Graphics.DrawMeshInstanced`, and confirm with `UnityStats` before believing a black frame.
 
 **Outlined-number pass (2026-07-31).** User supplied a reference screenshot of the genre's bank and
 asked for its text treatment. It is the standard casual-game one and it supersedes points 1-3 above:
@@ -553,8 +700,9 @@ reading duller than the red. Voxel palettes are the
 art-doc swatches (red `#C93620`/orange `#FF7543`/green `#32C76A`/purple/yellow + warm white
 `#FFF5E8` slot 4, dark ink slot 5). Cannons are a toy field-cannon tinted with the gun's color — a
 rounded-box body with a banded barrel running level toward the sculpture (+Z) and a big ammo number
-over the body (see the Cannon shape pass). Darts are near-white **billboarded dots** with long
-bright `TrailRenderer` streaks — see the Dart-geometry pass; destruction is a **cube pop + one
+over the body (see the Cannon shape pass). A dart is two quads — a round near-white bullet
+(`DartDot.png`) with a tapering tail behind it (`DartStreak.png`), both tinted per colour by baked
+materials — see the Instanced-dart pass; destruction is a **cube pop + one
 shockwave ring** and nothing else — see the Pop pass below for what replaced the old layered
 particle/debris stack.
 Bank queue rows behind row 0 render with a grayed-out cube but a **full-contrast number**
@@ -564,7 +712,7 @@ Bank queue rows behind row 0 render with a grayed-out cube but a **full-contrast
 "Shockwave ring"): on every voxel destroy the view fires exactly three things — the struck cube's
 own `Pop` (swell → white flash → collapse to zero with a small outward drift and a tumble), one
 pooled `Shockwave` ring quad, and a scale-punch ripple through nearby cubes
-(`VoxelCubeField.PunchAround` → `VoxelCube.Punch`, tuned by
+(`VoxelCubeField.PunchAround`, tuned by
 `hitPunchScale`/`hitPunchTime`/`hitPunchRadius`) — plus a subtle camera shake (`shakeOnHit` 0.045 —
 set 0 to disable). `CameraRig.Rig` is the static scene-wired handle the view shakes through, so no
 serialized ref or `GetComponent` is needed.
@@ -597,11 +745,13 @@ không spawn ra các hạt nữa... tôi muốn nó thật nhẹ."* Chosen from 
 `FindObjectsOfType<ParticleSystem>().Length == 0` and the same for `Rigidbody` while a level was
 being demolished. Before: 4 ParticleSystems emitting ~20 sprites, 8 pooled rigidbody fragments, and
 the struck cube turned into a 9th rigidbody, several times a second.
-- **`VoxelCube.Pop` replaced `VoxelCube.Explode`.** The cube animates its own death (`popTime` 0.17,
+- **A pop replaced the old `Explode`.** The cube animates its own death (`popTime` 0.17,
   `popSwell` 0.30 over the first `popSwellPhase` 0.30 of it, then collapse to zero; `popRise` 0.18
   drift, `popSpin` 70°, `popFlash` 0.85). With nothing else spawning, **the swell IS the impact** —
-  it is the first knob to raise if hits stop feeling punchy.
-- **The VoxelCube prefab lost its BoxCollider and Rigidbody entirely.** They existed only to be
+  it is the first knob to raise if hits stop feeling punchy. (It was `VoxelCube.Pop` on the cube's
+  own MonoBehaviour until the Instanced-voxel pass moved it into `VoxelPopPool`.)
+- **The VoxelCube prefab lost its BoxCollider and Rigidbody entirely** (and later the prefab itself
+  — see the Instanced-voxel pass). They existed only to be
   switched on by `Explode`; the collider was authored disabled and nothing raycasts voxels
   (`TurntableGesture.TryBegin` accepts any press, it never hits a collider). A big level is several
   hundred cubes, so this is several hundred fewer physics components per load.
@@ -635,8 +785,9 @@ Measured on level 60 (2006 cubes): the sculpture draws
 **24k triangles** where the old rounded mesh would have drawn 1.18M, and **98.8% of voxel renderers
 carry no MaterialPropertyBlock**, so they stay in the SRP Batcher (1212 renderers, 14 with a block,
 during a live four-gun barrage). What each piece is and why:
-- **`VoxelCube.prefab` uses `Resources.GetBuiltinResource<Mesh>("Cube.fbx")` — 12 triangles vs
-  RoundedCube's 588.** Its per-face UVs are the full 0..1 square, exactly like the rounded mesh's
+- **Voxels use `Resources.GetBuiltinResource<Mesh>("Cube.fbx")` — 12 triangles vs
+  RoundedCube's 588.** (It sat on `VoxelCube.prefab` at the time; the Instanced-voxel pass moved it
+  to `VisualLibrary.voxelMesh`.) Its per-face UVs are the full 0..1 square, exactly like the rounded mesh's
   planar UVs, so EdgeSheen maps unchanged. `RoundedCube.asset` is still baked and still used by the
   **gun slot rims and bank blocks** — a handful of props seen large, where the bevel is what sells
   the toy read. `voxelCornerRadius`/`voxelRoundSegments` therefore no longer affect the sculpture.
@@ -653,10 +804,10 @@ during a live four-gun barrage). What each piece is and why:
   `VisualLibrary.GetVoxelMaterial(set, slot, variant)`; variant 1 is the zero-offset shade and just
   points at the base .mat, so only 2 extra files per slot exist. `VoxelCubeField` picks the variant
   from the same position hash the old jitter used. **A voxel must therefore never hold a property
-  block at rest** — `VoxelCube` clears it (`RendererTinter.Clear` → `SetPropertyBlock(null)`) the
-  moment a punch flash ends, and `ApplyFlash(0)` clears rather than re-tints. Reintroducing a
-  permanent MPB on voxels silently costs ~2000 draw-call binds a frame.
-  `BakeVoxelJitterMaterial` re-derives each variant from its base with `CopyPropertiesFromMaterial`
+  block** — at the time that meant clearing it the moment a punch flash ended; since the
+  Instanced-voxel pass a voxel has no renderer to hold one at all, and *every* per-cube shade
+  including the flash is a baked material.
+  `BakeVoxelShadeMaterial` re-derives each variant from its base with `CopyPropertiesFromMaterial`
   on EVERY bake (same always-apply reasoning as `RoundedCube.asset`/`NumberLabel.mat`) so the
   hand-held white voxel materials carry their edits into their variants.
 - **`ExposedTargetSelector.Reserve` resolves one height band at a time.** Visibility is a ray march
@@ -688,11 +839,12 @@ nhiêu khối cube cũng được."* The Density pass hollowed every shape to a 
 cube count affordable, and that is visibly wrong the moment the player breaks through: a
 half-demolished strawberry was an empty husk. **The hollowing (and its orphan-repair loop) is gone —
 the model is a full solid.** The cost is paid on the Unity side instead:
-- **`VoxelCubeField` only instantiates EXPOSED cubes** (at least one of six grid neighbours
-  missing) and `Reveal(index)` spawns a voxel's still-living neighbours when it dies — exactly the
-  event that exposes them. Renderer count therefore tracks the sculpture's *surface area*, not its
-  volume, and never rises during a level. Measured on level 60: **7815 solid cubes, 1944 renderers
+- **`VoxelCubeField` only DRAWS EXPOSED cubes** (at least one of six grid neighbours
+  missing) and `Reveal(index)` adds a voxel's still-living neighbours when it dies — exactly the
+  event that exposes them. Drawn count therefore tracks the sculpture's *surface area*, not its
+  volume, and never rises during a level. Measured on level 60: **7815 solid cubes, 1944 drawn
   (25%)**, and the count only falls from there (1944 → 1840 → 1522 → 690 → 0 over a full clear).
+  (Those were 1944 GameObjects at the time; since the Instanced-voxel pass they are 1944 matrices.)
   Rendering cost is within noise of the hollow version. **Do not go back to instantiating every
   voxel** — the buried ones are pure cost with nothing on screen.
 - `gen_levels`' `VOXEL_MIN`/`VOXEL_MAX` (3000 → 8000) are now a **pacing** knob, not a rendering
@@ -708,10 +860,23 @@ the model is a full solid.** The cost is paid on the Unity side instead:
   (lemon, revolved, 7815 cubes) and level 6 (watermelon, `flat` mode, 3372) each finish
   `state=Won, alive=0, bankLeft=0, gunAmmoLeft=0`. Re-verify both after any change to
   `ExposedTargetSelector` or `CameraVoxelVisibility`.
+- **KNOWN, UNFIXED — a level can DEADLOCK if every slot holds a colour that is entirely buried.**
+  Observed on level 6 twice on 2026-07-31 while auto-playing it: the watermelon's white layer sits
+  between the green skin and the red flesh, so mid-level all 286 remaining white cubes measured
+  `exposed = 0`. A gun holds fire when `RequestTarget` returns −1 and only retires when its colour's
+  ALIVE count hits 0 — which cannot happen while it cannot shoot — so four white guns sat on four
+  slots forever with 1118 cubes left. Nothing is leaked (the reservation set measured 0); it is a
+  rule interaction, and it predates the instanced-dart pass. A player can walk into it the same way.
+  The cheap fixes if it ever needs one: retire a gun whose colour has had no exposed target for N
+  seconds, or refuse a deploy whose colour has no exposed cube (`DeployBlock` already refuses a
+  colour with none ALIVE — this is the same guard one step stricter).
 
 ### Prefabs (`Assets/_Project/Prefabs/`)
-`VoxelCube`, `Dart`, `Gun`, `GunSlot` (references `Gun`), `BankBlock`, plus `Fx/Shockwave.prefab`. Prefabs are now **fully authored**: the whole visual subtree
-(meshes, materials, TMP labels, colliders, trail) lives in the prefab with serialized renderer
+`Gun`, `GunSlot` (references `Gun`), `BankBlock`, plus `Fx/Shockwave.prefab`. **There is neither a
+voxel nor a dart prefab** — the sculpture is drawn from `VisualLibrary.voxelMesh` + the baked voxel
+materials and the darts from `dartMesh` + the baked dart materials, see the Instanced-voxel and
+Instanced-dart passes. Prefabs are **fully authored**: the whole visual subtree
+(meshes, materials, TMP labels, colliders) lives in the prefab with serialized renderer
 refs; `Initialize` only swaps baked materials / tints via MaterialPropertyBlock. The Visual Asset Baker
 rebuilds these subtrees on each bake — hand edits to prefab *visuals* belong in the baker or will
 be overwritten. **MonoBehaviour class name must match its `.cs` file name** or the prefab silently
@@ -720,8 +885,8 @@ stores `m_Script: {fileID: 0}`.
 **No runtime `GetComponent`/`AddComponent`/`Camera.main` in gameplay/system code** (user rule) —
 every component reference is a `[SerializeField]` wired in the prefab or scene (the baker wires
 them all: prefab refs + scene refs — camera on GameBootstrap/CameraRig/BoardInput, the two
-AudioManager AudioSources, UIController root). Patterns used instead: VoxelCube explosion physics
-carries no physics at all any more (see the Pop pass); raycast hits resolve via the `BankBlock.FromCollider` static registry; the camera is
+AudioManager AudioSources, UIController root). Patterns used instead: voxels have no components at
+all any more (see the Pop and Instanced-voxel passes); raycast hits resolve via the `BankBlock.FromCollider` static registry; the camera is
 exposed via `CameraRig.Main`. Exception: the code-first UI layer (`UIFactory` + `UI/*Screen`)
 still builds uGUI with AddComponent by design — converting it means prefab-izing the whole UI.
 

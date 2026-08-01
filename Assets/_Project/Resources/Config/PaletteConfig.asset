@@ -47,7 +47,7 @@ MonoBehaviour:
   gunBody: {r: 0.92, g: 0.28, b: 0.58, a: 1}
   gunBodyAlt: {r: 0.56, g: 0.36, b: 0.87, a: 1}
   dartColor: {r: 1, g: 1, b: 1, a: 1}
-  dartTrail: {r: 1, g: 1, b: 1, a: 0.55}
+  dartTrail: {r: 1, g: 1, b: 1, a: 0.72}
   bankBands:
   - {r: 0.961, g: 0.773, b: 0.094, a: 1}
   - {r: 1, g: 0.459, b: 0.263, a: 1}

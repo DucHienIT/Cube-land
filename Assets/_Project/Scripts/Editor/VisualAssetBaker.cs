@@ -18,6 +18,8 @@ namespace CubeBlaster.EditorTools
         const string MatDir = ArtDir + "/Materials";
         const string VoxelMatDir = MatDir + "/Voxels";
         const string VoxelJitterMatDir = VoxelMatDir + "/Jitter";
+        const string VoxelFlashMatDir = VoxelMatDir + "/Flash";
+        const string DartMatDir = MatDir + "/Darts";
         const string PrefabDir = "Assets/_Project/Prefabs";
         const string FxPrefabDir = PrefabDir + "/Fx";
         const string LibraryPath = "Assets/_Project/Resources/Config/VisualLibrary.asset";
@@ -46,6 +48,9 @@ namespace CubeBlaster.EditorTools
         static readonly Vector2 GunLabelFit = new Vector2(0.50f, 0.40f);
         const float GunLabelSize = 0.080f;
         const float LabelAutoSizeMin = 0.5f;
+
+        /// How far a dart's streak is pushed toward white from the colour it is going to break.
+        const float DartWhitening = 0.75f;
 
         static bool _force;
 
@@ -82,11 +87,16 @@ namespace CubeBlaster.EditorTools
             {
                 _force = true;
                 Texture2D edgeTex = BakeTexture(TexDir + "/EdgeSheen.png", 128, EdgePixel, mipmaps: true);
+                Texture2D dotTex = BakeTexture(TexDir + "/DartDot.png", 64, DotPixel,
+                    mipmaps: true, alwaysRebuild: true);
+                Texture2D streakTex = BakeTexture(TexDir + "/DartStreak.png", 64, StreakPixel,
+                    mipmaps: true, alwaysRebuild: true);
                 int materialCount = 0;
                 for (int set = 0; set < 4; set++)
                 {
-                    var built = BakeVoxelMaterialSet(set, edgeTex);
-                    materialCount += built.colors.Length + built.jitter.Length;
+                    var built = BakeVoxelMaterialSet(set, edgeTex, dotTex, streakTex);
+                    materialCount += built.colors.Length + built.jitter.Length
+                                     + built.flash.Length + built.dart.Length + built.dartStreak.Length;
                 }
 
                 AssetDatabase.SaveAssets();
@@ -158,11 +168,17 @@ namespace CubeBlaster.EditorTools
             }
             Texture2D ringTex = BakeTexture(TexDir + "/FxRing.png", 64, RingPixel, mipmaps: true,
                 alwaysRebuild: true);
-            Texture2D dotTex = BakeTexture(TexDir + "/DartDot.png", 64, DotPixel, mipmaps: true,
-                alwaysRebuild: true);
+
+            Texture2D dotTex = BakeTexture(TexDir + "/DartDot.png", 64, DotPixel,
+                mipmaps: true, alwaysRebuild: true);
+            Texture2D streakTex = BakeTexture(TexDir + "/DartStreak.png", 64, StreakPixel,
+                mipmaps: true, alwaysRebuild: true);
+            Material dartBullet = BakeDartMaterial(MatDir + "/DartBullet.mat", dotTex, Color.white, 1f);
+            Material dartStreak = BakeDartMaterial(MatDir + "/DartTrail.mat", streakTex, Color.white,
+                PaletteConfig.Active.dartTrail.a);
 
             var voxelSets = new List<VisualLibrary.MaterialSet>();
-            for (int set = 0; set < 4; set++) voxelSets.Add(BakeVoxelMaterialSet(set, edgeTex));
+            for (int set = 0; set < 4; set++) voxelSets.Add(BakeVoxelMaterialSet(set, edgeTex, dotTex, streakTex));
 
             Material gunPart = BakeMaterial(MatDir + "/GunPart.mat", m => SetupToon(m, Color.white, null));
             Material gunHole = BakeMaterial(MatDir + "/GunHole.mat", m =>
@@ -190,21 +206,6 @@ namespace CubeBlaster.EditorTools
                 m.SetFloat("_ZWrite", 0f);
                 m.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Background;
             });
-            // The bullet is a camera-facing DOT, not a sphere. It was the built-in sphere at 768
-            // triangles, on an unlit material — so the geometry bought literally no shading — and
-            // four guns keep ~90 darts in the air, which is 69k triangles for balls that render a
-            // handful of pixels wide, nearly 3x the whole sculpture. Always re-applied because
-            // the shader has to match the mesh the prefab uses.
-            Material dartBullet = BakeMaterial(MatDir + "/DartBullet.mat", m =>
-            {
-                m.shader = Shader.Find("Sprites/Default");
-                m.mainTexture = dotTex;
-                SetBaseColor(m, Color.white);
-            }, alwaysApply: true);
-            Material dartTrail = BakeMaterial(MatDir + "/DartTrail.mat", m =>
-            {
-                m.shader = Shader.Find("Sprites/Default");
-            });
             Material fxRing = BakeMaterial(MatDir + "/FxRing.mat", m =>
             {
                 m.shader = Shader.Find("Sprites/Default");
@@ -212,21 +213,19 @@ namespace CubeBlaster.EditorTools
             });
             Material labelMat = BakeLabelMaterial();
 
-            Mesh sphere = Resources.GetBuiltinResource<Mesh>("New-Sphere.fbx");
             Mesh quad = Resources.GetBuiltinResource<Mesh>("Quad.fbx");
 
             // Voxels render on Unity's built-in cube — 12 triangles against RoundedCube's ~700.
             // A level is 1000-2000 cubes, so the bevel that sells a hero prop up close costs
             // over a million triangles on the sculpture while spanning a couple of pixels.
             // The props (slot rims, bank blocks) are a handful of objects seen large and keep
-            // the rounded mesh.
+            // the rounded mesh. There is no VoxelCube prefab to put this on any more: the mesh
+            // goes straight into VisualLibrary and the field draws from it.
             Mesh unitCube = Resources.GetBuiltinResource<Mesh>("Cube.fbx");
             TMP_FontAsset font = AssetDatabase.LoadAssetAtPath<TMP_FontAsset>(FontPath);
 
             Shockwave shockwave = BakeShockwavePrefab(quad, fxRing);
 
-            BakeVoxelCubePrefab(unitCube, voxelSets[0].colors[0]);
-            BakeDartPrefab(quad, dartBullet, dartTrail);
             BakeGunPrefab(rounded, gunBody, gunPuck, gunPart, gunHole, font, labelMat);
             BakeGunSlotPrefab(rounded, slotPad, gunHole);
             BakeBankBlockPrefab(rounded, voxelSets[0].colors[0], font, labelMat);
@@ -238,10 +237,12 @@ namespace CubeBlaster.EditorTools
                 AssetDatabase.CreateAsset(lib, LibraryPath);
             }
             lib.voxelSets = voxelSets.ToArray();
+            lib.voxelMesh = unitCube;
+            lib.dartMesh = quad;
             lib.backdrop = backdrop;
             lib.slotPad = slotPad;
             lib.dartBullet = dartBullet;
-            lib.dartTrail = dartTrail;
+            lib.dartStreak = dartStreak;
             lib.shockwavePrefab = shockwave;
             EditorUtility.SetDirty(lib);
 
@@ -261,6 +262,8 @@ namespace CubeBlaster.EditorTools
             EnsureFolder(ArtDir, "Materials");
             EnsureFolder(MatDir, "Voxels");
             EnsureFolder(VoxelMatDir, "Jitter");
+            EnsureFolder(VoxelMatDir, "Flash");
+            EnsureFolder(MatDir, "Darts");
             EnsureFolder(PrefabDir, "Fx");
         }
 
@@ -535,12 +538,31 @@ namespace CubeBlaster.EditorTools
         static float _bgStrength, _bgRadius, _bgTint;
         static Color _bgBase = new Color(0.149f, 0.231f, 0.396f);
 
-        /// Solid white core with a soft rim — the dart bullet, drawn on a camera-facing quad.
+        /// Solid white core with a soft rim — the bullet itself, drawn on a camera-facing quad.
         static Color32 DotPixel(float u, float v)
         {
             float dx = u - 0.5f, dy = v - 0.5f;
             float d = Mathf.Sqrt(dx * dx + dy * dy) * 2f;
             float a = Mathf.SmoothStep(1f, 0f, Mathf.InverseLerp(0.70f, 1f, d));
+            return new Color32(255, 255, 255, (byte)(a * 255f));
+        }
+
+        /// The TAIL only — full width and full alpha at the top edge (where the bullet sits),
+        /// narrowing and fading to nothing at the bottom. It carries no head: the quad it lands on
+        /// is stretched ~19:1 (dartTrailWidth against dartTrailTime * dartSpeed), so anything
+        /// painted here is stretched with it and a "round" head would have to be ~1 pixel tall to
+        /// come out round on screen. Trying to draw the whole dart in this one tile is exactly what
+        /// made the darts read as rays — the bullet is its own camera-facing quad again.
+        static Color32 StreakPixel(float u, float v)
+        {
+            const float halfWidthAtHead = 0.46f, taper = 0.6f, fade = 1.4f;
+            float du = u - 0.5f;
+
+            // Taper and fade are separate: a tail that only narrows ends in a hard needle, one that
+            // only fades keeps its full width all the way down and reads as a band.
+            float halfWidth = halfWidthAtHead * Mathf.Pow(v, taper);
+            float across = Mathf.SmoothStep(1f, 0f, Mathf.Abs(du) / Mathf.Max(1e-4f, halfWidth));
+            float a = Mathf.Clamp01(across * Mathf.Pow(v, fade));
             return new Color32(255, 255, 255, (byte)(a * 255f));
         }
 
@@ -599,25 +621,40 @@ namespace CubeBlaster.EditorTools
             if (mat.HasProperty("_SpecularToonSmoothness")) mat.SetFloat("_SpecularToonSmoothness", cfg.toonSpecSmoothing);
         }
 
-        /// Bakes one palette set's voxel materials: the per-slot base .mat plus the per-block
-        /// colour-jitter variants of each.
+        /// Bakes one palette set's voxel materials: the per-slot base .mat, the per-block
+        /// colour-jitter variants of each, and the quantised hit-flash shades.
         ///
-        /// The jitter used to be a MaterialPropertyBlock written onto every cube. A property
-        /// block evicts its renderer from the SRP Batcher, which was free at 450 cubes and is
-        /// not at 2000 — it means a full material bind per cube, every frame. Separate .mat
-        /// assets sharing one shader stay in a single batch, so the variation is baked instead.
-        static VisualLibrary.MaterialSet BakeVoxelMaterialSet(int set, Texture2D edgeTex)
+        /// The jitter used to be a MaterialPropertyBlock written onto every cube, and the flash
+        /// still was until the voxels lost their GameObjects. Voxels are now drawn with
+        /// Graphics.DrawMeshInstanced and GROUPED BY MATERIAL, so a per-cube colour is not a
+        /// batching penalty any more — it is simply impossible. Every shade a cube can take has
+        /// to exist as a real material, and the whole sculpture is then a draw call per shade
+        /// actually on screen.
+        static VisualLibrary.MaterialSet BakeVoxelMaterialSet(int set, Texture2D edgeTex,
+            Texture2D dotTex, Texture2D streakTex)
         {
             var cfg = GameConfig.Active;
             var palette = PaletteConfig.Active.GetVoxelSet(set);
             var colors = new Material[palette.Length];
             var jitter = new Material[palette.Length * ColorTools.JitterVariants];
+            var flash = new Material[palette.Length * ColorTools.FlashLevels];
+            var dart = new Material[palette.Length];
+            var dartStreak = new Material[palette.Length];
 
             for (int slot = 0; slot < palette.Length; slot++)
             {
                 Color baseColor = palette[slot];
                 colors[slot] = BakeMaterial(string.Format("{0}/Voxel_S{1}_C{2}.mat", VoxelMatDir, set, slot),
                     m => SetupVoxelToon(m, baseColor, edgeTex));
+
+                // The bullet is opaque white-ish; only the tail carries dartTrail's alpha. A tail
+                // as solid as its bullet is what turned a stream of darts into white ribbons.
+                dart[slot] = BakeDartMaterial(
+                    string.Format("{0}/Dart_S{1}_C{2}.mat", DartMatDir, set, slot),
+                    dotTex, baseColor, 1f);
+                dartStreak[slot] = BakeDartMaterial(
+                    string.Format("{0}/DartTrail_S{1}_C{2}.mat", DartMatDir, set, slot),
+                    streakTex, baseColor, PaletteConfig.Active.dartTrail.a);
 
                 for (int variant = 0; variant < ColorTools.JitterVariants; variant++)
                 {
@@ -628,21 +665,102 @@ namespace CubeBlaster.EditorTools
                         jitter[index] = colors[slot];
                         continue;
                     }
-                    jitter[index] = BakeVoxelJitterMaterial(
+                    jitter[index] = BakeVoxelShadeMaterial(
                         string.Format("{0}/Voxel_S{1}_C{2}_J{3}.mat", VoxelJitterMatDir, set, slot, variant),
                         colors[slot],
                         ColorTools.Jitter(baseColor, variant, cfg.voxelHueJitter, cfg.voxelValueJitter));
                 }
+
+                for (int level = 1; level <= ColorTools.FlashLevels; level++)
+                    flash[slot * ColorTools.FlashLevels + level - 1] = BakeVoxelShadeMaterial(
+                        string.Format("{0}/Voxel_S{1}_C{2}_F{3}.mat", VoxelFlashMatDir, set, slot, level),
+                        colors[slot],
+                        Color.Lerp(baseColor, Color.white, ColorTools.GetFlashShade(level)));
             }
-            return new VisualLibrary.MaterialSet { colors = colors, jitter = jitter };
+            return new VisualLibrary.MaterialSet
+            {
+                colors = colors,
+                jitter = jitter,
+                flash = flash,
+                dart = dart,
+                dartStreak = dartStreak
+            };
         }
 
-        /// A jitter variant has nothing hand-editable of its own — it is "the slot material,
-        /// one quantised shade off" — so it is re-derived from its source on EVERY bake rather
-        /// than skipped when it already exists. That is what lets the hand-held white voxel
-        /// materials (see the art passes in CLAUDE.md) carry their edits into their variants
-        /// without a Force Rebake All resetting every other material.
-        static Material BakeVoxelJitterMaterial(string path, Material source, Color shade)
+        /// Two materials per palette slot — bullet and tail — because a dart's colour cannot be a
+        /// property block: DartField draws the whole swarm with Graphics.DrawMeshInstanced and two
+        /// darts share a draw call exactly when they share a material. Derived, never hand-tuned,
+        /// so it is re-applied on every bake — same reasoning as the voxel shades.
+        static Material BakeDartMaterial(string path, Texture2D tex, Color voxelColor, float alpha)
+        {
+            var mat = AssetDatabase.LoadAssetAtPath<Material>(path);
+            if (mat == null)
+            {
+                mat = new Material(Shader.Find("Universal Render Pipeline/Unlit"));
+                AssetDatabase.CreateAsset(mat, path);
+            }
+            SetupStreak(mat, tex, DartStreakColor(voxelColor, alpha));
+            EditorUtility.SetDirty(mat);
+            return mat;
+        }
+
+        /// A dart is a whitened version of the cube it is going to break — enough of the colour
+        /// to tell four guns apart mid-barrage, light enough to read as a tracer against the
+        /// sculpture. Alpha stays in the alpha channel: see SetupStreak for why this is NOT
+        /// premultiplied.
+        static Color DartStreakColor(Color voxelColor, float alpha)
+        {
+            Color bullet = Color.Lerp(voxelColor, Color.white, DartWhitening);
+            bullet.a = Mathf.Clamp01(alpha);
+            return bullet;
+        }
+
+        /// Unlit, STRAIGHT alpha blend, double-sided, no depth write and no shadow/depth passes.
+        ///
+        /// The blend is the load-bearing part. The old bullet/trail used `Sprites/Default`, which
+        /// is a premultiplied blend (`One OneMinusSrcAlpha`) that works because that shader does
+        /// `c.rgb *= c.a` itself. **URP 14's Unlit has no such path** — checked in
+        /// `UnlitForwardPass.hlsl`: it only calls `AlphaModulate`, which is a no-op unless
+        /// `_ALPHAMODULATE_ON` (the MULTIPLY blend mode) is set. Setting the hardware blend to
+        /// premultiplied without premultiplying the source therefore makes every fully
+        /// TRANSPARENT pixel add its full rgb: the darts rendered as solid white squares and
+        /// their tails as solid bars, which is what "gun đang bắn những tia" was. Instancing is
+        /// on: without it every dart is its own draw call again and the whole pass buys nothing.
+        static void SetupStreak(Material mat, Texture2D tex, Color color)
+        {
+            var shader = Shader.Find("Universal Render Pipeline/Unlit");
+            if (shader != null) mat.shader = shader;
+
+            SetBaseColor(mat, color);
+            if (tex != null)
+            {
+                if (mat.HasProperty("_BaseMap")) mat.SetTexture("_BaseMap", tex);
+                mat.mainTexture = tex;
+            }
+
+            mat.SetFloat("_Surface", 1f);
+            mat.SetFloat("_Blend", 0f);
+            mat.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            mat.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            mat.SetFloat("_SrcBlendAlpha", (float)UnityEngine.Rendering.BlendMode.One);
+            mat.SetFloat("_DstBlendAlpha", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            mat.SetFloat("_ZWrite", 0f);
+            mat.SetFloat("_Cull", (float)UnityEngine.Rendering.CullMode.Off);
+            mat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            mat.DisableKeyword("_ALPHAMODULATE_ON");
+            mat.SetOverrideTag("RenderType", "Transparent");
+            mat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+            mat.SetShaderPassEnabled("DepthOnly", false);
+            mat.SetShaderPassEnabled("SHADOWCASTER", false);
+            mat.enableInstancing = true;
+        }
+
+        /// A derived shade has nothing hand-editable of its own — it is "the slot material, one
+        /// quantised step off" — so it is re-derived from its source on EVERY bake rather than
+        /// skipped when it already exists. That is what lets the hand-held white voxel materials
+        /// (see the art passes in CLAUDE.md) carry their edits into their variants without a
+        /// Force Rebake All resetting every other material.
+        static Material BakeVoxelShadeMaterial(string path, Material source, Color shade)
         {
             if (source == null) return null;
 
@@ -863,64 +981,6 @@ namespace CubeBlaster.EditorTools
             for (int i = 0; i < values.Length; i++)
                 prop.GetArrayElementAtIndex(i).objectReferenceValue = values[i];
             so.ApplyModifiedPropertiesWithoutUndo();
-        }
-
-        static void BakeVoxelCubePrefab(Mesh rounded, Material defaultMat)
-        {
-            EditPrefab(PrefabDir + "/VoxelCube.prefab", root =>
-            {
-                var mf = root.GetComponent<MeshFilter>();
-                if (mf == null) mf = root.AddComponent<MeshFilter>();
-                mf.sharedMesh = rounded;
-                var mr = root.GetComponent<MeshRenderer>();
-                if (mr == null) mr = root.AddComponent<MeshRenderer>();
-                mr.sharedMaterial = defaultMat;
-
-                var rb = root.GetComponent<Rigidbody>();
-                if (rb != null) Object.DestroyImmediate(rb, true);
-                var col = root.GetComponent<BoxCollider>();
-                if (col != null) Object.DestroyImmediate(col, true);
-
-                var cube = root.GetComponent<VoxelCube>();
-                SetRef(cube, "meshRenderer", mr);
-            });
-        }
-
-        static void BakeDartPrefab(Mesh quad, Material bulletMat, Material trailMat)
-        {
-            EditPrefab(PrefabDir + "/Dart.prefab", root =>
-            {
-                ClearChildren(root);
-
-                var trail = root.GetComponent<TrailRenderer>();
-                if (trail == null) trail = root.AddComponent<TrailRenderer>();
-                trail.sharedMaterial = trailMat;
-                trail.time = GameConfig.Active.dartTrailTime;
-                trail.startWidth = GameConfig.Active.dartTrailWidth;
-                trail.endWidth = 0f;
-                trail.numCapVertices = 4;
-                trail.numCornerVertices = 2;
-                trail.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-                trail.receiveShadows = false;
-
-                var bullet = AddMeshChild(root.transform, "Bullet", quad, bulletMat,
-                    Vector3.zero, Quaternion.identity, Vector3.one * 0.22f);
-                var mr = bullet.GetComponent<MeshRenderer>();
-                mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-                mr.receiveShadows = false;
-                mr.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
-                mr.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
-
-                // Dart.Initialize aims the ROOT along the muzzle so the trail streaks correctly;
-                // the bullet is billboarded independently so the dot always faces the camera.
-                var billboard = bullet.GetComponent<Billboard>();
-                if (billboard == null) billboard = bullet.AddComponent<Billboard>();
-                billboard.towardCamera = 0f;
-
-                var dart = root.GetComponent<Dart>();
-                SetRef(dart, "trail", trail);
-                SetRef(dart, "bulletRenderer", mr);
-            });
         }
 
         static void BakeGunPrefab(Mesh roundedCube, Mesh gunBody, Mesh puck,

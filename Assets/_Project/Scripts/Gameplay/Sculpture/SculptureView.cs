@@ -7,8 +7,6 @@ namespace CubeBlaster
         const float MinScale = 0.01f;
         const float PopUpBias = 0.5f;
 
-        [SerializeField] VoxelCube voxelPrefab;
-
         VoxelCubeField _field;
         Turntable _turntable;
         IFxService _fx;
@@ -24,7 +22,7 @@ namespace CubeBlaster
 
         void Awake()
         {
-            _field = new VoxelCubeField(voxelPrefab, transform);
+            _field = new VoxelCubeField(transform);
             _turntable = new Turntable(transform);
             _fx = FxService.Current ?? NullFxService.Instance;
 
@@ -46,10 +44,15 @@ namespace CubeBlaster
             _turntable.Configure(TurntableSettings.From(config), config.sculptureRestYaw);
 
             _layout = new SculptureLayout(model, config, _cellSize, _scale);
-            _field.Build(model, _layout, VisualLibrary.Active, paletteIndex, VoxelStyle.From(config));
+            _field.Build(model, _layout, VisualLibrary.Active, paletteIndex, config);
 
             _model.VoxelDestroyed += OnVoxelDestroyed;
         }
+
+        /// The voxels have no Transform of their own, so nothing draws them unless this runs
+        /// every frame. LateUpdate rather than Update: the turntable and the guns have both
+        /// moved by then, and the sculpture's world matrix is what every cube is composed from.
+        void LateUpdate() => _field.Tick(Time.deltaTime, GameConfig.Active);
 
         public Vector3 WorldToGrid(Vector3 world) =>
             transform.InverseTransformPoint(world) / _cellSize + (_layout?.GridOrigin ?? Vector3.zero);
@@ -62,16 +65,15 @@ namespace CubeBlaster
 
         void OnVoxelDestroyed(int index)
         {
-            var cube = _field.DetachCube(index);
-            if (cube == null) return;
+            if (!_field.IsSpawned(index)) return;
 
             var config = GameConfig.Active;
-            Vector3 position = cube.transform.position;
+            Vector3 position = GetWorldPosition(index);
             Vector3 outward = position - transform.position;
             outward.y = Mathf.Abs(outward.y) + PopUpBias;
 
-            _fx.PlayImpact(position, cube.Color);
-            cube.Pop(outward, PopSettings.From(config));
+            _fx.PlayImpact(position, _field.GetColor(index));
+            _field.PopCube(index, outward, PopSettings.From(config));
             _field.Reveal(index);
             _field.PunchAround(index, _cellSize, config);
         }

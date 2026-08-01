@@ -13,6 +13,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   targetFrameRate: 60
+  voxelCastShadows: 0
   voxelSize: 0.25
   voxelGap: 0.018
   voxelCornerRadius: 0.16
@@ -41,6 +42,7 @@ MonoBehaviour:
   popRise: 0.09
   popFlash: 0.85
   popSpin: 70
+  popMaxActive: 96
   shockwaveTime: 0.22
   shockwaveStartSize: 0.3
   shockwaveEndSize: 0.85

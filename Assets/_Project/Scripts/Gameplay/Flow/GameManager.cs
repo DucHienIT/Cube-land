@@ -15,13 +15,13 @@ namespace CubeBlaster
 
         [Header("Prefabs")]
         [SerializeField] GunSlot gunSlotPrefab;
-        [SerializeField] Dart dartPrefab;
 
         [Header("Roots")]
         [SerializeField] Transform gunSlotRoot;
-        [SerializeField] Transform dartRoot;
 
         readonly List<GunSlot> _slots = new List<GunSlot>();
+
+        DartField _darts;
 
         IStarRule _starRule = new TimeStarRule();
         ITargetSelector _targets;
@@ -44,6 +44,11 @@ namespace CubeBlaster
         public void UseStarRule(IStarRule rule)
         {
             if (rule != null) _starRule = rule;
+        }
+
+        void Awake()
+        {
+            _darts = new DartField(transform);
         }
 
         void Start()
@@ -79,6 +84,7 @@ namespace CubeBlaster
             _dartsFired = 0;
 
             sculpture.Initialize(_model, _data.paletteIndex);
+            _darts.Configure(this, VisualLibrary.Active, _data.paletteIndex);
             _targets = new ExposedTargetSelector(_model,
                 new CameraVoxelVisibility(_model, sculpture, () => CameraRig.Main));
 
@@ -129,10 +135,13 @@ namespace CubeBlaster
                 if (slot != null) Destroy(slot.gameObject);
             _slots.Clear();
 
-            if (dartRoot == null) return;
-            for (int i = dartRoot.childCount - 1; i >= 0; i--)
-                Destroy(dartRoot.GetChild(i).gameObject);
+            _darts.Clear();
         }
+
+        /// The darts have no Transform of their own, so nothing draws them unless this runs every
+        /// frame. Update rather than LateUpdate: a dart resolves its hit as it arrives, and the
+        /// destroy has to land before SculptureView submits the sculpture for this frame.
+        void Update() => _darts.Tick(Time.deltaTime, GameConfig.Active);
 
         public int RequestTarget(int colorIndex) => _targets != null ? _targets.Reserve(colorIndex) : -1;
 
@@ -146,10 +155,8 @@ namespace CubeBlaster
 
         public void SpawnDart(int voxelIndex, Vector3 origin, Vector3 barrelDirection)
         {
-            var dart = Instantiate(dartPrefab, dartRoot != null ? dartRoot : transform);
-            dart.Initialize(this, voxelIndex, origin, barrelDirection,
-                sculpture.GetWorldPosition(voxelIndex),
-                GetColor(_model.GetCell(voxelIndex).ColorIndex));
+            _darts.Spawn(voxelIndex, _model.GetCell(voxelIndex).ColorIndex, origin, barrelDirection,
+                sculpture.GetWorldPosition(voxelIndex), GameConfig.Active);
 
             _dartsFired++;
             float progress = _totalVoxels > 0 ? (float)_dartsFired / _totalVoxels : 0f;

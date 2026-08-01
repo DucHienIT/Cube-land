@@ -17,6 +17,14 @@ namespace CubeBlaster
         public int targetFrameRate = 60;
 
         [Header("Sculpture")]
+        [Tooltip("Off by default: the sculpture is 1000-2900 renderers, and having them cast into " +
+                 "the shadow map very nearly DOUBLES the frame's draw calls (measured 4215 -> 2410 " +
+                 "on level 30). That is the single biggest lever for the WebGL target, where each " +
+                 "draw costs far more than it does natively. The cost is the sculpture's own " +
+                 "self-shadowing — undersides of overhangs go flatter — which SSAO partly covers. " +
+                 "Read per frame by VoxelCubeField's instanced draw, so this now takes effect " +
+                 "immediately — no re-bake.")]
+        public bool voxelCastShadows = false;
         [Tooltip("Half what it was before the density pass. A level is now 1000-2000 cubes and " +
                  "its grid spans ~16-34 cells instead of ~11, so halving the cell keeps the " +
                  "sculpture at the same WORLD size — which is what every other world-unit knob " +
@@ -80,6 +88,11 @@ namespace CubeBlaster
         [Range(0f, 1f)] public float popFlash = 0.85f;
         [Tooltip("Degrees of tumble over the whole pop. Cheap extra life; 0 disables it.")]
         public float popSpin = 70f;
+        [Tooltip("Size of the pop animation ring. A pop no longer owns a GameObject, so this is a " +
+                 "hard ceiling on simultaneous death animations and nothing is ever allocated. " +
+                 "Four guns at the current fire interval destroy well over a hundred cubes a " +
+                 "second and each pop lives popTime, so anything under ~30 cuts pops short.")]
+        public int popMaxActive = 96;
 
         [Header("Shockwave ring (the ONLY thing a destroy spawns)")]
         [Tooltip("Seconds the ring takes to expand and fade out.")]
@@ -144,11 +157,15 @@ namespace CubeBlaster
                  "speed the streak was 7.3 units, i.e. the whole flight path, and read as a rope " +
                  "rather than a streak.")]
         public float dartTrailTime = 0.11f;
-        [Tooltip("Width at the head; it tapers to nothing. Keep it a little under the bullet dot " +
-                 "(0.22): matched too closely and each dart reads as a ribbon with a bead stuck " +
-                 "on the end, far under and the stream of darts reads as a dotted chain rather " +
-                 "than tracer fire.")]
+        [Tooltip("Width of the tail quad where it meets the bullet; it tapers to nothing. Keep it " +
+                 "a little under dartBulletSize: matched too closely and each dart reads as a " +
+                 "ribbon with a bead stuck on the end, far under and the stream of darts reads as " +
+                 "a dotted chain rather than tracer fire.")]
         public float dartTrailWidth = 0.16f;
+        [Tooltip("Diameter of the round camera-facing bullet. It is a SEPARATE quad from the tail " +
+                 "— a single stretched quad cannot hold a round head, which is what made the darts " +
+                 "read as rays. Was hardcoded 0.22 in the baker until the Instanced-dart pass.")]
+        public float dartBulletSize = 0.22f;
         public float dartHitScatter = 0.0f;
         public float dartApproachOffset = 2.4f;
 

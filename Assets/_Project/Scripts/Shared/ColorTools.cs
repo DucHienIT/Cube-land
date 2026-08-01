@@ -15,6 +15,27 @@ namespace CubeBlaster
 
         public const int JitterVariants = 3;
 
+        /// Hit flash is quantised into this many baked shades instead of being a continuous
+        /// per-cube tint. Voxels have no renderer of their own — they are drawn with
+        /// Graphics.DrawMeshInstanced, grouped by material — so a continuous colour would mean
+        /// one draw call per flashing cube. A handful of shades keeps the whole barrage inside
+        /// the same handful of instanced draws.
+        public const int FlashLevels = 3;
+
+        /// Whitening added per level. Deliberately stops at 0.9 rather than reaching pure white:
+        /// the two callers land at 0.35 (hitFlashIntensity) and 0.85 (popFlash), and a fully
+        /// white cube reads as a rendering glitch — see the blowout passes in CLAUDE.md.
+        const float FlashStep = 0.3f;
+
+        const float FlashEpsilon = 0.001f;
+
+        /// 0 means "no flash, use the cube's own jitter shade".
+        public static int PickFlashLevel(float amount) => amount <= FlashEpsilon
+            ? 0
+            : Mathf.Clamp(Mathf.RoundToInt(amount / FlashStep), 1, FlashLevels);
+
+        public static float GetFlashShade(int level) => Mathf.Clamp01(level * FlashStep);
+
         public static Color ClampBrightness(Color c, float maxChannel)
         {
             float peak = Mathf.Max(c.r, Mathf.Max(c.g, c.b));
