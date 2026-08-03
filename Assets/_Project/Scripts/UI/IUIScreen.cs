@@ -9,5 +9,6 @@ namespace CubeBlaster
         void Show();
         void Hide();
         void Refresh();
+        void ApplyLayout(bool landscape);
     }
 }

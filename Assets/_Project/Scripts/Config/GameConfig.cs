@@ -6,6 +6,7 @@ namespace CubeBlaster
     public class GameConfig : ScriptableObject
     {
         const string ResourcePath = "Config/GameConfig";
+        const float MaxCameraTopReserve = 0.45f;
 
         static readonly ConfigProvider<GameConfig> Provider = new ConfigProvider<GameConfig>(ResourcePath);
 
@@ -168,6 +169,12 @@ namespace CubeBlaster
         public float dartBulletSize = 0.22f;
         public float dartHitScatter = 0.0f;
         public float dartApproachOffset = 2.4f;
+        [Tooltip("Slots DartField starts with. A dart may never be recycled while it is still " +
+                 "flying (ammo is exact), so the array grows instead of overwriting — and a grow " +
+                 "is a copy of the whole array on the frame the barrage peaks, which is exactly " +
+                 "the frame that can least afford it. Four guns settle at ~90 darts; this is set " +
+                 "far above that so the array is allocated once, at level load, and never again.")]
+        public int dartPoolCapacity = 200;
 
         [Header("Bank")]
         public float bankSlotSpacing = 1.5f;
@@ -180,6 +187,17 @@ namespace CubeBlaster
                  "as the queue advances. Raising it runs the bank off the bottom of the frame — " +
                  "cameraFitBottomY is what it has to stay inside.")]
         public int bankVisibleRows = 3;
+        [Tooltip("Rows shown on a wide screen. Vertical space is what a landscape frame is short " +
+                 "of and horizontal space is what it has to spare, so the bank trades a row for " +
+                 "columns instead of stacking under the sculpture.")]
+        public int bankVisibleRowsLandscape = 2;
+        [Tooltip("Thickness of the black outline shell on the PLAYABLE (front-row) bank blocks, " +
+                 "as a fraction of the block. It is an inverted hull — a copy of the block mesh " +
+                 "scaled up and rendered with front faces culled — so the visible ring is only " +
+                 "HALF this per side (0.16 reads as an 8% rim). 0.055 was tried first and " +
+                 "measured under a pixel on a phone-sized frame. Requires a re-bake: the shell's " +
+                 "scale is baked into BankBlock.prefab.")]
+        [Range(0.01f, 0.2f)] public float bankOutlineWidth = 0.16f;
 
         [Header("Rotation (drag only — the structure never spins by itself)")]
         public float rotateSensitivity = 0.3f;
@@ -189,12 +207,25 @@ namespace CubeBlaster
         public float cameraPitch = 75f;
         public float cameraFov = 32f;
         public float cameraFitBottomY = -5.2f;
-        [Tooltip("World units of clear space reserved ABOVE the sculpture. The HUD's level title " +
-                 "and progress bar sit there and the framing solver cannot see them, so without " +
-                 "a real margin a tall sculpture renders straight through the text — which every " +
-                 "level does now that they are all 1000-2000 cubes. This used to borrow " +
-                 "cameraFitPadding, which is also a multiplier and so could not be raised alone.")]
-        public float cameraTopMargin = 3.2f;
+        [Tooltip("Bottom of the framed board on a wide screen. Landscape shows one bank row less " +
+                 "(bankVisibleRowsLandscape), so the board ends higher and the frame does not " +
+                 "have to reserve the missing row.")]
+        public float cameraFitBottomYLandscape = -4.7f;
+        [Tooltip("Hard MINIMUM world clearance above the sculpture. The HUD reserve below is what " +
+                 "normally decides the headroom; this only catches the case where a fraction of a " +
+                 "small frame would leave the sculpture touching the top edge. It used to be the " +
+                 "whole mechanism at 3.2 world units, which on a wide screen is far less of the " +
+                 "frame than the HUD actually occupies — see cameraTopReserve.")]
+        public float cameraTopMargin = 0.8f;
+        [Tooltip("Fraction of the framed height kept clear at the TOP for the HUD, which the " +
+                 "solver cannot see. It has to be a fraction, not world units: the HUD is a " +
+                 "screen-space band, so the same 3.2 world units was ~16% of a portrait frame " +
+                 "and had to cover a 28% band in landscape — which is exactly why the level " +
+                 "title and the block counter used to sit on top of the sculpture.")]
+        [Range(0f, 0.45f)] public float cameraTopReserve = 0.18f;
+        [Tooltip("Same reserve on a wide screen. Lower than portrait because HudScreen collapses " +
+                 "to a single top bar there; raise both together if the HUD ever grows.")]
+        [Range(0f, 0.45f)] public float cameraTopReserveLandscape = 0.11f;
 
         [Header("Feel / Timing")]
         public float winPopupDelay = 0.7f;
@@ -236,5 +267,20 @@ namespace CubeBlaster
 
         [Header("Scoring")]
         public int coinsPerLevel = 20;
+
+        public int GetBankVisibleRows(bool landscape) =>
+            Mathf.Max(1, landscape ? bankVisibleRowsLandscape : bankVisibleRows);
+
+        /// One bank lane per shooter slot, in BOTH orientations — the lane a block is queued in
+        /// is the slot it is heading for, and a bank wider than the slot row breaks that read.
+        /// The level asset's own `bankColumns` is therefore informational: it is written by
+        /// gen_levels to match gunSlotCount and nothing loads it into the layout.
+        public int GetBankColumns() => Mathf.Max(1, gunSlotCount);
+
+        public float GetCameraFitBottomY(bool landscape) =>
+            landscape ? cameraFitBottomYLandscape : cameraFitBottomY;
+
+        public float GetCameraTopReserve(bool landscape) =>
+            Mathf.Clamp(landscape ? cameraTopReserveLandscape : cameraTopReserve, 0f, MaxCameraTopReserve);
     }
 }

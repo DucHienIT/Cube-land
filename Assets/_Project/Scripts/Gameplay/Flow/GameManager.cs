@@ -91,7 +91,9 @@ namespace CubeBlaster
             BuildSlots(_data.gunSlots);
             bank.Initialize(_data.bank, _data.bankColors, _data.paletteIndex, _data.bankColumns);
             if (input != null) input.Initialize(this);
-            if (cameraRig != null) cameraRig.FitTo(sculpture.Bounds);
+            if (cameraRig != null) cameraRig.FitTo(sculpture.Frame);
+
+            FxService.Current.Prewarm();
 
             _levelStartTime = Time.time;
             _state = GameState.Playing;
@@ -163,11 +165,16 @@ namespace CubeBlaster
             AudioService.Current.PlayShoot(progress);
         }
 
+        /// Destroy BEFORE release. The selector re-queues a released voxel as a candidate, so
+        /// releasing first hands it back a voxel that is about to die and leaves a dead entry in
+        /// its bucket for the next shot to trip over. Releasing after means the release is a
+        /// no-op for a hit that landed, and still frees the reservation for the case that
+        /// matters — a dart that expired without destroying anything.
         public void ResolveDartHit(int voxelIndex, Vector3 position)
         {
+            if (_model != null && _model.DestroyVoxel(voxelIndex))
+                AudioService.Current.PlayVoxelBreak();
             if (_targets != null) _targets.Release(voxelIndex);
-            if (_model == null) return;
-            if (_model.DestroyVoxel(voxelIndex)) AudioService.Current.PlayVoxelBreak();
         }
 
         public GunSlot FindFirstEmptySlot()

@@ -95,6 +95,11 @@ namespace CubeBlaster
         public Color outlineInk = new Color(0.055f, 0.09f, 0.16f);
         public Color shadowInk = new Color(0.035f, 0.055f, 0.14f, 0.52f);
 
+        [Header("World")]
+        [Tooltip("Inverted-hull outline on the playable bank blocks. Near-black rather than pure " +
+                 "black: the backdrop is navy and a 0,0,0 rim reads as a hole punched in it.")]
+        public Color blockOutline = new Color(0.02f, 0.03f, 0.06f);
+
         public Color[] GetVoxelSet(int index)
         {
             switch (((index % VoxelSetCount) + VoxelSetCount) % VoxelSetCount)

@@ -16,9 +16,10 @@ namespace CubeBlaster
         float _cellSize = 1f;
         float _scale = 1f;
 
-        public Bounds Bounds => _layout != null
-            ? _layout.WorldBounds
-            : new Bounds(GameConfig.Active.sculptureCenter, Vector3.one);
+        public SculptureFrame Frame => _layout != null
+            ? new SculptureFrame(_layout.WorldBounds, _layout.TopEdge)
+            : new SculptureFrame(new Bounds(GameConfig.Active.sculptureCenter, Vector3.one),
+                GameConfig.Active.sculptureCenter.y);
 
         void Awake()
         {

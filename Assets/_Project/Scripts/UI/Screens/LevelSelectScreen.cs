@@ -6,9 +6,12 @@ namespace CubeBlaster
     public class LevelSelectScreen : UIScreen
     {
         const int StarsPerLevel = 3;
-        const int GridColumns = 4;
+        const int PortraitColumns = 4;
+        const int LandscapeColumns = 7;
 
         RectTransform _content;
+        GridLayoutGroup _grid;
+        int _columns = PortraitColumns;
 
         public LevelSelectScreen(IUIHost ui) : base(ui) { }
 
@@ -21,20 +24,30 @@ namespace CubeBlaster
             UIFactory.GradientBG(t, pal.menuBg);
 
             var header = UIFactory.Label("Header", t, "SELECT LEVEL", 66, Color.white);
-            UIFactory.Rect(header.gameObject, new Vector2(0, 1), new Vector2(1, 1), new Vector2(0, -240), new Vector2(0, -120));
+            UIFactory.Rect(header.gameObject, new Vector2(0, 1), new Vector2(1, 1), new Vector2(0, -210), new Vector2(0, -110));
             UIFactory.AddOutline(header, pal.outlineInk);
 
             var back = UIFactory.CandyButton("Back", t, "MENU", pal.btnSlate, () => UI.GoToMainMenu(), 40);
-            UIFactory.Rect(back.gameObject, new Vector2(0, 1), new Vector2(0, 1), new Vector2(40, -240), new Vector2(260, -130));
+            UIFactory.Rect(back.gameObject, new Vector2(0, 1), new Vector2(0, 1), new Vector2(40, -215), new Vector2(260, -105));
 
             BuildScrollGrid(t);
+            ApplyLayout(ScreenLayout.IsLandscape);
+        }
+
+        /// A wide frame is short, not narrow: four columns leave the sides empty while only ~2.5
+        /// rows of cards fit vertically. The extra columns spend the space the screen actually has.
+        public override void ApplyLayout(bool landscape)
+        {
+            _columns = landscape ? LandscapeColumns : PortraitColumns;
+            if (_grid != null) _grid.constraintCount = _columns;
+            if (_content != null && _content.childCount > 0) Refresh();
         }
 
         void BuildScrollGrid(Transform parent)
         {
             var scrollGo = new GameObject("Scroll", typeof(RectTransform), typeof(ScrollRect), typeof(RectMask2D));
             scrollGo.transform.SetParent(parent, false);
-            UIFactory.Rect(scrollGo, new Vector2(0, 0), new Vector2(1, 1), new Vector2(60, 160), new Vector2(-60, -300));
+            UIFactory.Rect(scrollGo, new Vector2(0, 0), new Vector2(1, 1), new Vector2(60, 130), new Vector2(-60, -235));
 
             var scroll = scrollGo.GetComponent<ScrollRect>();
             scroll.horizontal = false;
@@ -49,13 +62,13 @@ namespace CubeBlaster
             _content.pivot = new Vector2(0.5f, 1);
             _content.anchoredPosition = Vector2.zero;
 
-            var grid = contentGo.GetComponent<GridLayoutGroup>();
-            grid.cellSize = new Vector2(210, 210);
-            grid.spacing = new Vector2(28, 28);
-            grid.padding = new RectOffset(20, 20, 20, 20);
-            grid.constraint = GridLayoutGroup.Constraint.FixedColumnCount;
-            grid.constraintCount = GridColumns;
-            grid.childAlignment = TextAnchor.UpperCenter;
+            _grid = contentGo.GetComponent<GridLayoutGroup>();
+            _grid.cellSize = new Vector2(210, 210);
+            _grid.spacing = new Vector2(28, 28);
+            _grid.padding = new RectOffset(20, 20, 20, 20);
+            _grid.constraint = GridLayoutGroup.Constraint.FixedColumnCount;
+            _grid.constraintCount = _columns;
+            _grid.childAlignment = TextAnchor.UpperCenter;
 
             var fitter = contentGo.GetComponent<ContentSizeFitter>();
             fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
@@ -100,7 +113,7 @@ namespace CubeBlaster
             var stripImage = strip.GetComponent<Image>();
             stripImage.sprite = SpriteFactory.UIGloss();
             stripImage.type = Image.Type.Sliced;
-            stripImage.color = accents[((level - 1) / GridColumns) % accents.Length];
+            stripImage.color = accents[((level - 1) / _columns) % accents.Length];
             stripImage.raycastTarget = false;
 
             var number = UIFactory.Label("Num", card.transform, level.ToString(), 74, pal.cardInk);

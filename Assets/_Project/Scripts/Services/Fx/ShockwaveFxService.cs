@@ -23,6 +23,15 @@ namespace CubeBlaster
             ring.Play(position, color, GameConfig.Active);
         }
 
+        /// The pool is shockwaveMaxActive (40) Instantiate calls. Built lazily they all land on
+        /// the frame of the first destroy — i.e. the frame four guns' opening darts arrive, on
+        /// top of that frame's first pops, first flashes and first shader variants. Built here
+        /// they land during the level-load frame, which is already a loading beat.
+        public void Prewarm()
+        {
+            if (_host == null) Build();
+        }
+
         Shockwave FindNextRing()
         {
             if (_host == null && !Build()) return null;

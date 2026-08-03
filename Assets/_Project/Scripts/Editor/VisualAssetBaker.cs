@@ -211,6 +211,21 @@ namespace CubeBlaster.EditorTools
                 m.shader = Shader.Find("Sprites/Default");
                 m.mainTexture = ringTex;
             });
+
+            // Inverted hull for the playable bank blocks: the shell is a copy of the block mesh
+            // scaled up, and it only reads as an outline because FRONT faces are culled — what
+            // survives is the shell's far side, which the block itself then covers except at the
+            // silhouette. Unlit and opaque, so the outline stays the same solid black whichever
+            // way the block is lit. `alwaysApply` because every one of those settings is derived
+            // policy, not hand-tuned art.
+            Material blockOutline = BakeMaterial(MatDir + "/BlockOutline.mat", m =>
+            {
+                m.shader = Shader.Find("Universal Render Pipeline/Unlit");
+                SetBaseColor(m, PaletteConfig.Active.blockOutline);
+                m.SetFloat("_Cull", (float)UnityEngine.Rendering.CullMode.Front);
+                m.SetFloat("_ZWrite", 1f);
+                m.enableInstancing = true;
+            }, alwaysApply: true);
             Material labelMat = BakeLabelMaterial();
 
             Mesh quad = Resources.GetBuiltinResource<Mesh>("Quad.fbx");
@@ -228,7 +243,7 @@ namespace CubeBlaster.EditorTools
 
             BakeGunPrefab(rounded, gunBody, gunPuck, gunPart, gunHole, font, labelMat);
             BakeGunSlotPrefab(rounded, slotPad, gunHole);
-            BakeBankBlockPrefab(rounded, voxelSets[0].colors[0], font, labelMat);
+            BakeBankBlockPrefab(rounded, voxelSets[0].colors[0], font, labelMat, blockOutline);
 
             var lib = AssetDatabase.LoadAssetAtPath<VisualLibrary>(LibraryPath);
             if (lib == null)
@@ -247,11 +262,95 @@ namespace CubeBlaster.EditorTools
             EditorUtility.SetDirty(lib);
 
             BakePostFx(lib);
+            StripShadows();
 
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
             Debug.Log("[VisualAssetBaker] Bake complete. All visuals are now assets/prefabs — tweak them in " +
                       ArtDir + ", " + PrefabDir + " and " + LibraryPath);
+        }
+
+        [MenuItem("Tools/Cube Blaster/Strip Shadows")]
+        public static void StripShadowsMenu() => StripShadows();
+
+        /// The game casts NO real-time shadows at all. Three separate things have to agree or a
+        /// shadow map still gets rendered, which is why this is one step rather than a checkbox:
+        /// the pipeline asset decides whether the pass exists, the LIGHT decides whether it
+        /// contributes, and each renderer decides whether it is drawn into it.
+        ///
+        /// It is also the cheapest frame-time lever left. The shadow pass re-draws every caster
+        /// from the light's point of view, so on a board of guns/slots/bank blocks it very nearly
+        /// doubles the draw calls — and on WebGL, where each draw crosses the JS/WASM boundary,
+        /// that is the cost that matters. The sculpture was already excluded (voxelCastShadows),
+        /// so what this removes is the props' contribution plus the pass itself.
+        ///
+        /// The look does not fall apart without it because the lighting was never built on cast
+        /// shadows: form comes from the near-top-down key against a high ambient floor, and
+        /// contact darkening comes from SSAO, which is a screen-space pass and is untouched here.
+        static void StripShadows()
+        {
+            int lights = 0, renderers = 0;
+
+            foreach (var guid in AssetDatabase.FindAssets("t:UniversalRenderPipelineAsset"))
+            {
+                var asset = AssetDatabase.LoadAssetAtPath<Object>(AssetDatabase.GUIDToAssetPath(guid));
+                if (asset == null) continue;
+                var so = new SerializedObject(asset);
+                SetBool(so, "m_MainLightShadowsSupported", false);
+                SetBool(so, "m_AdditionalLightShadowsSupported", false);
+                SetBool(so, "m_SoftShadowsSupported", false);
+                so.ApplyModifiedPropertiesWithoutUndo();
+                EditorUtility.SetDirty(asset);
+            }
+
+            // Prefabs are authored by this baker, so their renderers are set here rather than in
+            // each Bake*Prefab — one place to look when a shadow reappears.
+            foreach (var path in new[] { PrefabDir + "/Gun.prefab", PrefabDir + "/GunSlot.prefab",
+                PrefabDir + "/BankBlock.prefab", PrefabDir + "/Fx/Shockwave.prefab" })
+            {
+                var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+                if (prefab == null) continue;
+                foreach (var mr in prefab.GetComponentsInChildren<MeshRenderer>(true))
+                {
+                    mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                    mr.receiveShadows = false;
+                    renderers++;
+                }
+                EditorUtility.SetDirty(prefab);
+            }
+
+            var scene = EditorSceneManager.GetActiveScene();
+            bool openedHere = scene.path != ScenePath;
+            if (openedHere) scene = EditorSceneManager.OpenScene(ScenePath, OpenSceneMode.Additive);
+
+            foreach (var rootGo in scene.GetRootGameObjects())
+            {
+                foreach (var light in rootGo.GetComponentsInChildren<Light>(true))
+                {
+                    light.shadows = LightShadows.None;
+                    lights++;
+                }
+                foreach (var mr in rootGo.GetComponentsInChildren<MeshRenderer>(true))
+                {
+                    mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                    mr.receiveShadows = false;
+                    renderers++;
+                }
+            }
+            EditorSceneManager.MarkSceneDirty(scene);
+            EditorSceneManager.SaveScene(scene);
+            if (openedHere) EditorSceneManager.CloseScene(scene, true);
+
+            AssetDatabase.SaveAssets();
+            Debug.Log(string.Format(
+                "[VisualAssetBaker] Shadows stripped: {0} light(s) set to None, {1} renderer(s) " +
+                "off, shadow support disabled on every URP asset.", lights, renderers));
+        }
+
+        static void SetBool(SerializedObject so, string property, bool value)
+        {
+            var prop = so.FindProperty(property);
+            if (prop != null) prop.boolValue = value;
         }
 
         static void EnsureFolders()
@@ -1091,8 +1190,11 @@ namespace CubeBlaster.EditorTools
             });
         }
 
-        static void BakeBankBlockPrefab(Mesh rounded, Material defaultMat, TMP_FontAsset font, Material labelMat)
+        static void BakeBankBlockPrefab(Mesh rounded, Material defaultMat, TMP_FontAsset font,
+            Material labelMat, Material outlineMat)
         {
+            const float CubeScale = 0.92f;
+
             EditPrefab(PrefabDir + "/BankBlock.prefab", root =>
             {
                 ClearChildren(root);
@@ -1103,13 +1205,21 @@ namespace CubeBlaster.EditorTools
                 box.size = new Vector3(0.95f, 0.95f, 0.95f);
 
                 var cube = AddMeshChild(root.transform, "Cube", rounded, defaultMat,
-                    Vector3.zero, Quaternion.identity, Vector3.one * 0.92f);
+                    Vector3.zero, Quaternion.identity, Vector3.one * CubeScale);
+
+                // Sits UNDER the label so the number is never inside the hull, and is added
+                // before the cube in draw terms only by depth — both are opaque, so the cube's
+                // own faces win wherever they overlap and only the rim survives.
+                var outline = AddMeshChild(root.transform, "Outline", rounded, outlineMat,
+                    Vector3.zero, Quaternion.identity,
+                    Vector3.one * (CubeScale * (1f + GameConfig.Active.bankOutlineWidth)));
 
                 var label = AddLabel(root.transform, "0", BankLabelSize, font, labelMat, 0.9f,
                     Vector3.zero, BankLabelFit);
 
                 var block = root.GetComponent<BankBlock>();
                 SetRef(block, "cubeRenderer", cube.GetComponent<MeshRenderer>());
+                SetRef(block, "outlineRenderer", outline.GetComponent<MeshRenderer>());
                 SetRef(block, "label", label);
                 SetRef(block, "boxCollider", box);
             });

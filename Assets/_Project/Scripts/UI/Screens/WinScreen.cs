@@ -27,8 +27,11 @@ namespace CubeBlaster
             dimImage.color = new Color(0, 0, 0, 0.5f);
             dimImage.raycastTarget = true;
 
+            // 760 tall, not the 960 this card used to be: the ribbon hangs 120 above the card, and
+            // the landscape canvas is only 1080 logical units tall, so the taller card pushed
+            // "LEVEL CLEAR!" off the top of a wide screen. The shorter card fits both.
             var card = UIFactory.Card("Card", t, pal.cardWhite);
-            UIFactory.Rect(card, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(-420, -480), new Vector2(420, 480));
+            UIFactory.Rect(card, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(-420, -415), new Vector2(420, 345));
             card.AddComponent<UIPopIn>().from = 0.75f;
 
             UIFactory.Ribbon(card.transform, "LEVEL CLEAR!", pal.btnGreen, 620f, 60);
@@ -37,20 +40,20 @@ namespace CubeBlaster
             BuildCoinChip(card.transform, pal);
 
             _next = UIFactory.CandyButton("Next", card.transform, "NEXT", pal.btnGreen, () => UI.GoToNextLevel(), 60);
-            UIFactory.Rect(_next.gameObject, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(-300, 200), new Vector2(300, 340));
+            UIFactory.Rect(_next.gameObject, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(-300, 165), new Vector2(300, 295));
 
             var replay = UIFactory.CandyButton("Replay", card.transform, "REPLAY", pal.btnOrange, () => UI.RestartLevel(), 44);
-            UIFactory.Rect(replay.gameObject, new Vector2(0, 0), new Vector2(0.5f, 0), new Vector2(60, 70), new Vector2(-15, 180));
+            UIFactory.Rect(replay.gameObject, new Vector2(0, 0), new Vector2(0.5f, 0), new Vector2(60, 40), new Vector2(-15, 150));
 
             var menu = UIFactory.CandyButton("Menu", card.transform, "MENU", pal.btnSlate, () => UI.GoToMainMenu(), 44);
-            UIFactory.Rect(menu.gameObject, new Vector2(0.5f, 0), new Vector2(1, 0), new Vector2(15, 70), new Vector2(-60, 180));
+            UIFactory.Rect(menu.gameObject, new Vector2(0.5f, 0), new Vector2(1, 0), new Vector2(15, 40), new Vector2(-60, 150));
         }
 
         void BuildStarRow(Transform parent)
         {
             var starRow = new GameObject("Stars", typeof(RectTransform));
             starRow.transform.SetParent(parent, false);
-            UIFactory.Rect(starRow, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(-270, -400), new Vector2(270, -120));
+            UIFactory.Rect(starRow, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(-270, -330), new Vector2(270, -90));
 
             for (int i = 0; i < StarCount; i++)
             {
@@ -71,7 +74,7 @@ namespace CubeBlaster
         void BuildCoinChip(Transform parent, PaletteConfig pal)
         {
             var chip = UIFactory.Card("CoinChip", parent, new Color(1f, 0.93f, 0.76f));
-            UIFactory.Rect(chip, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(-190, -60), new Vector2(190, 40));
+            UIFactory.Rect(chip, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(-190, -75), new Vector2(190, 25));
 
             var icon = UIFactory.Icon("Coin", chip.transform, SpriteFactory.Circle(64, PaletteConfig.Active.coin), PaletteConfig.Active.coin);
             UIFactory.Rect(icon.gameObject, new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(20, -34), new Vector2(88, 34));

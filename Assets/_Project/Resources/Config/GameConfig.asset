@@ -68,19 +68,26 @@ MonoBehaviour:
   dartLife: 2
   dartTrailTime: 0.11
   dartTrailWidth: 0.16
+  dartBulletSize: 0.22
   dartHitScatter: 0
   dartApproachOffset: 2.4
+  dartPoolCapacity: 200
   bankSlotSpacing: 1.5
   bankRowSpacing: 0.96
   bankY: 0
   bankZ: -4.8
   bankVisibleRows: 3
+  bankVisibleRowsLandscape: 2
+  bankOutlineWidth: 0.16
   rotateSensitivity: 0.3
   cameraOrthographic: 0
   cameraPitch: 75
   cameraFov: 32
-  cameraFitBottomY: -4.5
-  cameraTopMargin: 3.2
+  cameraFitBottomY: -5.2
+  cameraFitBottomYLandscape: -4.7
+  cameraTopMargin: 0.8
+  cameraTopReserve: 0.18
+  cameraTopReserveLandscape: 0.11
   winPopupDelay: 0.7
   cameraFitPadding: 1.06
   shakeOnHit: 0

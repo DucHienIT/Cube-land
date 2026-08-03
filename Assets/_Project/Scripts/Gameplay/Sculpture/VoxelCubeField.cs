@@ -133,9 +133,12 @@ namespace CubeBlaster
 
             _pops.Tick(deltaTime, PopSettings.From(config), _batcher);
 
+            // receiveShadows is false to match: with no caster in the scene the only thing a
+            // shadow-receiving draw buys is the extra shader variant and the per-draw shadow
+            // sampling state. Turn both back on together for a desktop-only build.
             _batcher.Draw(_mesh, _parent.gameObject.layer,
                 config.voxelCastShadows ? ShadowCastingMode.On : ShadowCastingMode.Off,
-                receiveShadows: true);
+                receiveShadows: config.voxelCastShadows);
         }
 
         public bool IsSpawned(int index) =>

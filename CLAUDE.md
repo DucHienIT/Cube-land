@@ -63,12 +63,12 @@ Scripts/
 │   ├── Bank/               BankArea, BankBlock
 │   ├── Destruction/        Shockwave (the one pooled FX object a destroy spawns)
 │   ├── Input/              BoardInput + the IPointerGesture strategies
-│   └── View/               CameraRig, CameraFraming, Backdrop, Billboard
+│   └── View/               CameraRig, CameraFraming, SculptureFrame, Backdrop, Billboard
 ├── Services/               cross-cutting, interface-first, Null-Object-backed
 │   ├── Audio/  ├── Save/  └── Fx/
 ├── UI/                     UIController, IUIHost, IUIScreen, UIScreen
 │   ├── Screens/  ├── Effects/  └── Toolkit/   (UIFactory, SpriteFactory)
-├── Shared/                 tiny reusable primitives only: ColorTools, Ease, RendererTinter, ColliderRegistry, MeshInstanceBatcher
+├── Shared/                 tiny reusable primitives only: ColorTools, Ease, RendererTinter, ColliderRegistry, MeshInstanceBatcher, ScreenLayout
 └── Editor/                 VisualAssetBaker
 ```
 
@@ -115,8 +115,10 @@ orchestrator owes each feature.
   `LevelData` (runtime shape: voxels[] + bank[] + bankColors[] — color slot per bank block,
   parallel to bank), `VoxelCell` (immutable grid cell: X/Y/Z/ColorIndex/Alive), `VoxelModel`
   (runtime sculpture state + per-color alive counts + `VoxelDestroyed`/`AllCleared` events;
-  implements `IVoxelGrid`), `ExposedTargetSelector` (`ITargetSelector`: reservation + top-band
-  reservoir pick, filtered by an injected `IVoxelVisibility`), `TimeStarRule` (`IStarRule`), and the
+  implements `IVoxelGrid`), `ExposedTargetSelector` (`ITargetSelector`: reservation + a bucket per
+  (colour, height band), picked by rejection sampling through an injected `IVoxelVisibility` — see
+  the opening-barrage pass, it is the hottest code in the game),
+  `TimeStarRule` (`IStarRule`), and the
   level-loading chain: `LevelLibrary` (facade, `Use(...)`-swappable) → `LevelAssetSource`
   (`Resources/Levels/level_NNN.asset`) → `ProceduralLevelSource` (fallback so it runs with no
   content).
@@ -189,7 +191,8 @@ bank/slot rows can never be clipped. Two traps, both hit and fixed during that p
   as much as the object grew. It is now left at 1.0 and kept only as a sculpture-vs-bank ratio knob.
 - `halfH` used to be `extents.x + 3.0`, which grew the required half-width every time the sculpture
   grew — the same lockstep problem. It is now driven by the bank row (`max(4.3, extents.x*0.62)`).
-`SculptureView.Bounds` is also tilt-aware now: the old version measured the *untilted* local box and
+`SculptureView.Frame` (was `.Bounds` until the Landscape pass — it now carries the box AND the
+screen-axis `TopEdge`) is also tilt-aware: the old version measured the *untilted* local box and
 over-reported a tall figure's on-screen height by 1/cos(tilt) (~1.7x at 55°), which is what left a
 band of dead space above the object. Measured result: on a compact shape (level 12) the sculpture
 went from 35.9% → 64.1% of screen width. Tall thin shapes (level 1) gain less (+15% height) because
@@ -199,7 +202,9 @@ went from 35.9% → 64.1% of screen width. Tall thin shapes (level 1) gain less 
   (`MainMenu`/`LevelSelect`/`Hud`/`Win`/`Settings`) that depend on `IUIHost`/`IGameFlow`, never on
   `GameManager`. Code-first uGUI via `UIFactory` (legacy `Text` + LegacyRuntime.ttf, no TMP).
   Juice components live one-per-file: `UIPressEffect`, `UIMotion`, `UIPopIn` (the old combined
-  `UIEffects.cs` is gone), plus `UIBob` idle pulse.
+  `UIEffects.cs` is gone), plus `UIBob` idle pulse. **A screen lays itself out in
+  `ApplyLayout(bool landscape)`**, called at build time and again on every orientation flip — see
+  the Landscape pass for why a single layout cannot serve both.
 - `Services/` — `Audio/`: `AudioManager` (MonoBehaviour playback only; it implements `IAudioService` and
   registers itself with the `Audio` facade in `Awake`. Synthesis moved to `ProceduralClipFactory` →
   `GameClips`). **Call audio as `AudioService.Current.PlayX()`** — the facade falls back to
@@ -212,7 +217,8 @@ went from 35.9% → 64.1% of screen width. Tall thin shapes (level 1) gain less 
   is settable so a test/scene can swap in `NullFxService`.
 - `UI/Toolkit/` — `SpriteFactory` (SDF rounded-rect/circle/star UI sprites) + `UIFactory`.
 - `Shared/` — small reusable primitives ONLY, nothing game-specific: `ColorTools`, `RendererTinter`,
-  `Ease` (the punch, pop-in and settle curves all come from `Ease`), the generic
+  `Ease` (the punch, pop-in and settle curves all come from `Ease`), `ScreenLayout` (the single
+  portrait-vs-landscape decision — see the Landscape pass; both the UI and the camera read it), the generic
   `ColliderRegistry<T>` and `MeshInstanceBatcher` (matrices bucketed per material, one
   `Graphics.DrawMeshInstanced` per bucket — it lives here because BOTH the sculpture and the dart
   swarm submit through it; it knows nothing about either). If a class knows about guns, voxels or
@@ -608,6 +614,27 @@ per-frame re-target and `DartArc` are ported line for line.
   `ScreenCapture.CaptureScreenshot` from `execute_code` for anything drawn with
   `Graphics.DrawMeshInstanced`, and confirm with `UnityStats` before believing a black frame.
 
+**No-shadow pass (2026-08-02).** User: *"remove toàn bộ shadow của các vật thể trên màn hình."*
+The game now renders **no real-time shadows at all**, and `Tools ▸ Cube Blaster ▸ Strip Shadows`
+(also part of every bake) is what enforces it. Three separate things have to agree or a shadow map
+is still rendered, which is why it is one action rather than a checkbox: the **pipeline asset**
+decides whether the pass exists (`m_MainLightShadowsSupported` / `m_AdditionalLightShadowsSupported`
+/ `m_SoftShadowsSupported`, set through `SerializedObject` — they are private serialized fields with
+no public setter), the **light** decides whether it contributes (`Light.shadows = None` on both
+scene lights), and each **renderer** decides whether it is drawn into it (every baked prefab +
+scene MeshRenderer). `VoxelCubeField` also passes `receiveShadows: config.voxelCastShadows`, i.e.
+false — with no caster left, a shadow-receiving draw only buys an extra shader variant.
+- The look holds up because the lighting was never built on cast shadows: form comes from the
+  near-top-down key against a high ambient floor, and contact darkening comes from **SSAO**, which
+  is a screen-space pass and is untouched. The voxels had already been excluded from casting since
+  the WebGL draw-call pass, so what this removes is the props' contribution plus the pass itself.
+- It is also a straight frame-time win on the WebGL target — the shadow pass re-draws every caster
+  from the light's point of view.
+- Turn it back on for a desktop/TV build by flipping `voxelCastShadows` and NOT running Strip
+  Shadows; note that a bake re-applies it, so that build needs the call removed from `Run()`.
+- **UI drop shadows are deliberately NOT touched** (`UIFactory.SoftShadow`, the `Shadow` component
+  on the HUD hint). They are text-legibility effects in screen space, not shadows cast by objects.
+
 **Outlined-number pass (2026-07-31).** User supplied a reference screenshot of the genre's bank and
 asked for its text treatment. It is the standard casual-game one and it supersedes points 1-3 above:
 **one white number with a heavy dark outline, on every block colour**, rather than an ink that
@@ -776,6 +803,36 @@ the struck cube turned into a 9th rigidbody, several times a second.
   materials, and every `fx*Count`/`fx*Size`/`debris*` GameConfig field. `IFxService` is now the
   single method `PlayImpact(position, color)`.
 
+**Opening-barrage stutter (2026-08-02).** User: *"khi có 4 gun tiến hành bắn cùng lúc vào lúc đầu
+game thì có hiện tượng lag nhẹ, có thể là do pool ban đầu của các viên đạn chưa đủ lớn."* Measured
+on level 30 (5301 cubes) by sampling `Time.unscaledDeltaTime` for 260 frames and deploying four guns
+at frame 30: **median 9.6ms but p95 34.5ms and max 45ms**, and the spikes recurred throughout the
+barrage rather than only at the start — which is what ruled the pool theory out as the main cause.
+- **The real cost was `ExposedTargetSelector.Reserve`: 0.351ms per shot**, timed directly over 200
+  calls. At ~133 shots a second that is **47ms of CPU per second of barrage**, and it scales with
+  the level — it was two full `grid.Count` scans per shot (one to find the highest band, one to
+  pick inside it). The selector now holds **a bucket per (colour, height band)** with an O(1)
+  swap-remove keyed by `_slotOf`, so a shot touches one band's list: **0.0126ms, 28x faster**, zero
+  allocation, and **p95 34.5 → 12.1ms, max 45 → 16ms**. Visibility is still a ray march, so the
+  pick does **rejection sampling** — up to `VisibilityProbes` (6) random candidates before falling
+  back to scanning the band. Rejection sampling picks uniformly among the visible candidates, the
+  same distribution the old full reservoir pass had; the full scan only runs when a band is
+  genuinely occluded, which is also what makes the walk down to the next band correct.
+  - **Only an EMPTY band lowers the cached top band.** A merely occluded one becomes shootable
+    again the moment the player rotates the turntable, so it must stay in range.
+  - **`GameManager.ResolveDartHit` destroys BEFORE releasing** now. The selector re-queues a
+    released voxel, so releasing first handed it back a voxel about to die and left a dead entry
+    for the next shot. Lazy pruning still catches the expired-dart path.
+- **The two allocation fixes the user asked for were real but secondary**, and both are now done:
+  `GameConfig.dartPoolCapacity` (200) sizes `DartField`'s array once at `Configure` instead of
+  growing it mid-barrage (a full array copy on the busiest frame), and `IFxService.Prewarm()` —
+  called from `StartLevel` — builds the 40-ring shockwave pool at load instead of on the first
+  destroy, which is the same frame as the first four darts landing.
+- **Gameplay GC turned out to be a non-issue**: allocation measured ~24 KB/frame *whether guns were
+  firing or not*, i.e. it is the editor/play-mode baseline, and the barrage adds ~1.3 KB/frame.
+  Don't chase it in a player build without re-measuring there.
+- Draw calls during the barrage: **85 batches / 49 setPass idle → 145 / 76 firing**.
+
 **Density pass (2026-07-31) — 1000-2000 cubes a level, on Unity's built-in cube.** User: *"tăng mật
 độ của Sculpture lên, và thay vì dùng RoundedCube thì hãy dùng các khối cube cơ bản của unity để
 giảm tris... 1 game đấu ít nhất phải 1000-2000 khối cube."* Levels went from 52-450 voxels to
@@ -831,7 +888,9 @@ during a live four-gun barrage). What each piece is and why:
   headroom from `cameraFitPadding`, which is also the multiplier on `halfHeight`, so it could not be
   raised on its own. Every level is a big sculpture now and tall ones (the apple's stem, the heart)
   rendered straight through the HUD's progress bar and "N blocks left" label, which the solver
-  cannot see. Verified at 3.2 on the tallest shapes.
+  cannot see. Verified at 3.2 on the tallest shapes. **Superseded by the Landscape pass** — a world
+  margin is the wrong unit for a screen-space band, and 3.2 was silently doing very different jobs
+  on different shapes. It is 0.8 now and only a floor.
 
 **Solid pass (2026-07-31, immediately after) — sculptures are no longer hollow.** User: *"có vài
 khối Sculpture tạo thành hình dạng các loại trái cây nhưng bị rỗng ruột... bỏ giới hạn trên đi, bao
@@ -870,6 +929,60 @@ the model is a full solid.** The cost is paid on the Unity side instead:
   The cheap fixes if it ever needs one: retire a gun whose colour has had no exposed target for N
   seconds, or refuse a deploy whose colour has no exposed cube (`DeployBlock` already refuses a
   colour with none ALIVE — this is the same guard one step stricter).
+
+**Landscape pass (2026-08-02) — the WebGL target is a wide window, and the UI was built for a tall
+one.** User: *"điều chỉnh lại UI trên webgl màn hình ngang: UI đang che phần game play khá nhiều."*
+The canvas is `1080x1920` reference at match 0.5, so its LOGICAL size is 1080x1920 in portrait but
+1920x**1080** in landscape — every offset measured in canvas units from a screen edge covers nearly
+twice the fraction of the frame. The HUD's title/bar/counter stack is 300 units: 15.6% of a portrait
+frame, **27.8%** of a landscape one, and the sculpture starts at ~23%. Nothing was mispositioned;
+the layout simply cannot be orientation-agnostic. **`ScreenLayout` (Shared) is the one place that
+decides which orientation is in play** (`aspect >= 1.2`) and both the UI and the camera read it.
+- **Screens now have `ApplyLayout(bool landscape)`** (`IUIScreen`, virtual no-op on `UIScreen`), and
+  `UIController.Update` calls it on every screen when the flag flips. It has to be live: on WebGL
+  the player owns the window size, and a phone rotates mid-level. `BankArea` watches the same flag
+  and re-deals (`Reflow`), `CameraRig` re-fits whenever `camera.aspect` changes at all.
+- **`HudScreen` collapses to ONE bar in landscape** — menu / "LEVEL n" left, restart right, and the
+  block counter moved INSIDE the progress track instead of under it. 300 units → 102, i.e. 27.8% →
+  **6.9%** of the frame. Only the centre had to get thin: the sculpture is ~0.3 of the screen wide,
+  so it passes under the bar and never under the corner buttons.
+- **The bank trades a row for columns** (`bankVisibleRowsLandscape` 2, `bankColumnsLandscape` 8 —
+  8x2 = 16 blocks, one MORE than the portrait 5x3) because vertical is what a wide frame is short
+  of. Columns are resolved at `Initialize` and on the orientation flip; the level's own
+  `bankColumns` still rules in portrait.
+- **`cameraTopMargin` is dead as a mechanism** (3.2 → 0.8, now only a floor). A world margin cannot
+  express a screen-space band — that is the whole bug. It is `cameraTopReserve` 0.18 /
+  `cameraTopReserveLandscape` 0.11 now: the FRACTION of the frame kept clear above the sculpture,
+  solved in closed form for the span that puts the content exactly there.
+- **The reserve then exposed two real bugs in the framing input, and both had to be fixed before the
+  fraction meant anything.** Under a 75° camera the screen's up axis is `(0, cos p, sin p)` —
+  **almost entirely world +Z**, not world Y:
+  1. `SculptureLayout.MeasureBounds` was tilt-aware in Y but left Z at the untilted radius, so the
+     box did not contain the object's top as the camera sees it (a 55° tilt leans a tall sculpture
+     most of a body-length up-screen). Fixed — the box now has the same `h/2·sin t + r·cos t` term
+     on Z that it always had on Y.
+  2. Reserving against `max.y + tan(p)·max.z` (the box's top-back CORNER) then over-reserved by up
+     to 50%: on anything that tapers — the rocket, the ice cream — that corner is empty space.
+     `SculptureFrame.TopEdge` is measured over the actual voxels instead, with each voxel's x/z
+     entering only as its RADIUS so the value stays valid at any turntable angle (same reasoning as
+     the box's single radius). `CameraRig.FitTo` takes a `SculptureFrame`, not a `Bounds`.
+- **Measured over all 60 levels, which is the only way to see this**: the sculpture's top used to
+  land anywhere from **0.028** of the screen (level 16's rocket, grazing the frame edge) to 0.193
+  (compact fruit, wasting a fifth of the frame) — the framing was effectively random per shape.
+  It is **0.095-0.146 in landscape and 0.167-0.261 in portrait** now, clear of the 0.069 bar and the
+  0.156 portrait band respectively. Compact levels render 5-12% larger than before; the two tallest
+  render 8-18% smaller, which is the clipping being corrected, not a loss.
+- **`cameraFitBottomY` had to follow** (portrait −4.5 → −5.2, `cameraFitBottomYLandscape` −4.7):
+  tightening the top zooms in, and the lowest bank row was landing at 0.95 of the screen, on top of
+  the hint text. Worst case is 0.93 now. **If the top reserve is ever retuned, re-measure the bank
+  row** — the two ends of the frame move together.
+- **The menu screens were broken in landscape too and are anchored fractionally now.**
+  `MainMenuScreen`'s PLAY button (pixels up from the bottom) rendered straight through the CUBE
+  title (pixels down from the top) on a 1080-tall canvas. The title block hangs off ONE fractional
+  anchor and spaces its two rows with ABSOLUTE offsets — both halves matter, since a fractional gap
+  that clears 150px tiles in portrait is only ~100px in landscape and the words overlap.
+  `WinScreen`'s card went 960 → 760 tall because its ribbon hangs 120 above it and was clipped off
+  the top of a wide screen; `LevelSelectScreen` uses 7 grid columns instead of 4.
 
 ### Prefabs (`Assets/_Project/Prefabs/`)
 `Gun`, `GunSlot` (references `Gun`), `BankBlock`, plus `Fx/Shockwave.prefab`. **There is neither a
@@ -913,6 +1026,21 @@ still builds uGUI with AddComponent by design — converting it means prefab-izi
   `LevelAsset.cs.meta`. Per-level asset GUIDs are an md5 of the level number so regenerating never
   renames a file. If you rename or move `LevelAsset.cs`, keep its `.cs.meta` — the generator and
   every existing level asset point at that GUID.
+- **Every level renders at least THREE colours** (`gen_levels.MIN_COLORS`, 2026-08-02; user:
+  *"mỗi level ít nhất phải có 3 màu khác nhau"*). 16 of the 28 shapes were one- or two-colour and
+  were repainted: the heart gained an orange lobe and a white shine, the lemon/gem/grapes/present a
+  highlight, the star an orange rim, the donut sprinkles, the dice a red centre pip, the cactus a
+  flower, and `make_ball` was rewritten to take a TUPLE of spot letters (three-tone patchwork balls)
+  plus optional `crown`/`shine` for the orange, which had to stay one solid colour. Two checks
+  enforce it and they are deliberately different:
+  - `sets_supporting` now also requires the set to keep MIN_COLORS letters **on distinct slots**.
+    The sets are not injective — **set B maps both R and O to slot 0** — so a red-and-orange shape
+    would otherwise render there as a single colour. This is what restricts the heart and the
+    balloon to sets 0 and 2.
+  - `check_colors` re-checks the **cubes**, not the art: a detail small enough to survive the
+    resample as zero cubes would pass the first check and still ship a two-colour level.
+  Smallest colour share across the 60 levels is 1.5% (~100 cubes ≈ 2 bank blocks), which is the
+  number to watch if a shape is ever re-drawn — a colour that lands under ~50 cubes is one block.
 - Sculptures are recognisable **objects** — strawberry, apple, watermelon, ice cream, donut,
   cupcake, rocket, cactus, soccer ball, gem, present, dice… (28 shapes, every one used at least
   twice). Each is authored as a 2D pixel map of *semantic colour letters* (`R O Y G P W K`), not
@@ -964,9 +1092,53 @@ still builds uGUI with AddComponent by design — converting it means prefab-izi
   `check_bank` asserts only the upper bound. Blocks are shuffled deterministically (seed = level) so
   colours interleave.
 - **`BankArea` is therefore a WINDOW onto a queue, not the whole bank.** It lays out
-  `GameConfig.bankVisibleRows` (3) × `bankColumns` (5) = 15 blocks and deactivates the rest,
+  `bankVisibleRows` (3) × `bankColumns` (5) = 15 blocks and deactivates the rest,
   parking them exactly one row behind the window so they slide forward as the queue advances
   instead of popping in. `bankVisibleRows` existed in the config but was unused until this pass.
+- **The bank has ONE LANE PER SHOOTER SLOT** (2026-08-02; user: *"số lượng slot bao nhiêu thì số
+  lượng hàng dọc bấy nhiêu"*). `GameConfig.GetBankColumns()` returns `gunSlotCount` and takes no
+  arguments: the level asset's own `bankColumns` and the old `bankColumnsLandscape` (8) are both
+  gone from the layout path, so a lane always sits under the slot it feeds. `gen_levels` still
+  writes `bankColumns` (as 4) so a level opened in the inspector reads honestly, and
+  `BankArea.Initialize` still takes the parameter so `LevelData` did not have to change — it is
+  ignored on purpose. `CameraFramingSolver.BoardHalfWidth` now derives the board width from the
+  same call in both orientations; at four lanes the 4.3 floor wins anyway, which is why the frame
+  did not move. Portrait still shows 3 rows and landscape 2 (`bankVisibleRows*`) — only the lane
+  count is locked to the slots.
+- **The playable row carries a black OUTLINE** (2026-08-02; user: *"những Bank ở đầu (tức có thể
+  click được) thì sẽ có outline đen"*). It is an inverted hull: `BankBlock.prefab` gained an
+  `Outline` child, a copy of the rounded cube scaled by `1 + GameConfig.bankOutlineWidth` with
+  `Art/Materials/BlockOutline.mat` (URP/Unlit, `_Cull = Front`, `PaletteConfig.blockOutline`), and
+  `BankBlock.SetRow` enables it only on row 0. Notes:
+  - **The visible ring is HALF the width knob per side**, so the first value tried (0.055) measured
+    under a pixel on a phone-sized frame and read as a bevel, not an outline. It ships at **0.16**
+    (~8% rim). The scale is baked into the prefab — changing the knob needs a re-bake.
+  - The dim on the queued rows was never a "you can drag this" signal — it says *not yet* and says
+    nothing about which row is live. The outline is the positive signal, and it costs one extra
+    draw per front-row block (4) and nothing on the queued ones.
+  - Unlit on purpose: a lit outline would take the toon ramp and go grey on the shadowed side.
+- **Each COLUMN is an independent vertical stack ("lane") fed from one shared queue** (2026-08-02;
+  user: *"khi pick 1 bank để đưa lên slot bắn thì các bank bên dưới ko dồn lên theo hàng mà lại đẩy
+  như chỉ có 1 hàng"*). The window used to be laid out from a FLAT index — `row = i / columns`,
+  `column = i % columns` — so consuming any block re-flowed every block after it: a block slid one
+  place sideways and, at column 0, wrapped up to the end of the previous row. The whole 5×3 grid
+  behaved like a single long row. `BankArea` now holds `_lanes` (a `List<BankBlock>` per column)
+  plus a `_pending` queue of everything behind the window: `Consume` removes the block from ITS
+  lane, that lane's blocks slide forward one row, the lane tops itself back up from `_pending`, and
+  **no other column moves**. The top-up is what keeps every lane full — a fixed round-robin
+  assignment would leave a column permanently empty as soon as the player drained it faster than
+  the others. The initial deal is deliberately ROW-major (`DealRowMajor`) so the queue's first
+  `columns` blocks are the playable front row; filling lane-by-lane would bury blocks 1..2 of the
+  queue behind block 0. A newly dequeued block is snapped to the park position one row behind the
+  window before `Layout` gives it its real home, so it slides in rather than popping.
+  **`Blocks`/`Remaining` are unchanged** — only the layout/queue policy moved — and `Row == 0` is
+  still the only playability test (`BlockDragGesture`). Verified in Play mode: taking the middle
+  block of the front row moved only the x=0 column (row1→row0, row2→row1, a new block in at row 2)
+  with all four other columns byte-identical, and level 20 still auto-plays to
+  `state=Won, bankLeft=0, alive=0` — the exact-ammo invariant survives the new deal order.
+  (Level 6 stalled at `bankLeft=12` with all four slots on colour 4 and `RequestTarget` = −1 —
+  that is the pre-existing buried-colour deadlock already documented under the Solid pass, not
+  this change; a driver that avoids stacking one colour into every slot clears it.)
 - Both the bank and the gun labels still auto-size (`BankLabelFit`, `GunLabelFit` in
   `VisualAssetBaker`) — a fixed size can only ever be right for one digit count, and the gun label
   was fixed at 0.066 until the density pass.
@@ -1021,6 +1193,13 @@ via `SerializedObject`. If rebuilding, compile scripts first, then create prefab
 
 ## Working in this repo
 
+- **WebGL builds**: `Tools ▸ Cube Blaster ▸ Build WebGL (Release / Development)`
+  (`Scripts/Editor/WebGLBuilder.cs`) builds to `Builds/WebGL/Release` or `/Development`
+  (gitignored). Release = Brotli + decompression fallback so it runs on any static host with no
+  server config; Development = uncompressed + development player for fast iteration, and
+  `Build And Run WebGL (Development)` serves it on Unity's local HTTP server. The tool writes
+  `PlayerSettings.WebGL` compression/fallback on every run, so those two settings are owned by the
+  tool — hand edits to them in Player Settings will be overwritten by the next build.
 - **No build/lint/test CLI is set up.** Building and playmode happen inside the Unity Editor. The Test Framework (`com.unity.test-framework`) is installed but there are no test assemblies yet.
 - To run tests headlessly once test asmdefs exist:
   ```bash

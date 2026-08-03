@@ -15,7 +15,7 @@ MonoBehaviour:
   level: 16
   paletteIndex: 0
   gunSlots: 4
-  bankColumns: 5
+  bankColumns: 4
   bank:
   - 50
   - 56

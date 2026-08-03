@@ -21,6 +21,9 @@ namespace CubeBlaster
         [SerializeField] TMPro.TMP_Text label;
         [FormerlySerializedAs("box")]
         [SerializeField] BoxCollider boxCollider;
+        [Tooltip("Inverted-hull shell that marks the block as playable. Baked by " +
+                 "VisualAssetBaker; a prefab from before that bake simply has no outline.")]
+        [SerializeField] MeshRenderer outlineRenderer;
 
         readonly RendererTinter _tinter = new RendererTinter();
 
@@ -59,12 +62,18 @@ namespace CubeBlaster
             if (snap) transform.position = home;
         }
 
+        /// The black outline is the ONLY hard signal for "this block can be dragged". The dim on
+        /// the queued rows says "not yet" but says nothing about which row is the live one — on a
+        /// dark palette two dimmed rows read much alike — and the outline is what the reference
+        /// genre uses for exactly this. It is an inverted hull rather than a screen-space edge
+        /// pass so it costs one extra draw per front-row block and nothing on the queued ones.
         public void SetRow(int row)
         {
             Row = row;
             bool playable = row == 0;
             Color shown = playable ? _tint : Color.Lerp(_tint, QueuedTint, QueuedDim);
 
+            if (outlineRenderer != null) outlineRenderer.enabled = playable;
             _tinter.Apply(cubeRenderer, shown);
             if (label == null) return;
 

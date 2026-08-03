@@ -71,7 +71,17 @@ BLOCK_MIN = 50
 BLOCK_MAX = 70
 BLOCK_TARGET = 60
 
-BANK_COLUMNS = 5
+# Bank columns == GameConfig.gunSlotCount, so every bank lane feeds one shooter slot directly
+# above it. The runtime takes the column count from gunSlotCount and ignores this value; it is
+# written into the asset so a level opened in the inspector still reads honestly.
+BANK_COLUMNS = 4
+
+# Every level must show at least this many DISTINCT colour slots. A one- or two-colour
+# sculpture makes the colour lock a formality — the player has one legal block most of the
+# time — and it wastes the bank's whole reason for existing. The rule is stated in SLOTS, not
+# in art letters, because the sets are not injective: set B maps both R and O to slot 0, so a
+# red-and-orange shape renders there as a single colour.
+MIN_COLORS = 3
 
 # ---------------------------------------------------------------------------
 # Palette: semantic letter -> colour slot, per PaletteConfig voxel set.
@@ -87,7 +97,13 @@ SETS = {
 
 
 def sets_supporting(letters):
-    return [i for i, m in SETS.items() if all(ch in m for ch in letters)]
+    """Sets that can express every letter AND keep MIN_COLORS of them apart.
+
+    The second half is the part that is easy to miss: a set may map two of the shape's
+    letters onto the same slot (set B has R and O both on slot 0), which silently turns a
+    three-colour shape into a two-colour level."""
+    return [i for i, m in SETS.items()
+            if all(ch in m for ch in letters) and len({m[ch] for ch in letters}) >= MIN_COLORS]
 
 
 # ---------------------------------------------------------------------------
@@ -110,10 +126,10 @@ def shape(name, art, mode="round", depth=1.0):
 
 
 shape("heart", """
-..RR...RR..
-.RRRRRRRRR.
-RRRRRRRRRRR
-RRRRRRRRRRR
+..RR...OO..
+.RWRRRROOO.
+RWWRRRRROOR
+RWRRRRRRORR
 RRRRRRRRRRR
 .RRRRRRRRR.
 ..RRRRRRR..
@@ -155,9 +171,9 @@ RRRRRRRRRRR
 shape("lemon", """
 ....GGG....
 ...YYYYY...
-..YYYYYYY..
-.YYYYYYYYY.
-YYYYYYYYYYY
+..YYWYYYY..
+.YWWYYYYYY.
+YYWYYYYYYYY
 YYYYYYYYYYY
 YYYYYYYYYYY
 .YYYYYYYYY.
@@ -228,11 +244,11 @@ shape("carrot", """
 ...GGG...
 ...GGG...
 ...OOO...
-..OOOOO..
-..OOOOO..
-..OOOOO..
+..OYOOO..
+..OOOYO..
+..OYOOO..
 ...OOO...
-...OOO...
+...OYO...
 ...OOO...
 ....O....
 ....O....
@@ -257,15 +273,15 @@ RRRRRRRRRRR
 
 shape("donut", """
 ...WWWWW...
-..WWWWWWW..
-.WWWWWWWWW.
+..WWRWGWW..
+.WWGWWWRWW.
 WWWW...WWWW
 OWW.....WWO
 OOO.....OOO
 OOO.....OOO
 OOOO...OOOO
-.OOOOOOOOO.
-..OOOOOOO..
+.OWWRWWGWO.
+..WWWWWWW..
 ...OOOOO...
 """)
 
@@ -288,11 +304,11 @@ WWWWWWWWWWW
 shape("lollipop", """
 ..RRRRR..
 .RWWWWWR.
-RWRRRRRWR
-RWRWWWRWR
-RWRWRWRWR
-RWRWWWRWR
-RWRRRRRWR
+RWYYYYYWR
+RWYRRRYWR
+RWYRYRYWR
+RWYRRRYWR
+RWYYYYYWR
 .RWWWWWR.
 ..RRRRR..
 ....W....
@@ -303,28 +319,28 @@ RWRRRRRWR
 
 shape("gem", """
 ..PPPPPPP..
-.PWPPPPPWP.
-PPPPPPPPPPP
-.PPPPPPPPP.
-..PPPPPPP..
-...PPPPP...
-...PPPPP...
-....PPP....
-....PPP....
-.....P.....
+.PWPPPPPPP.
+PPWPPKPPPPP
+.PPPPKPPPP.
+..PPPKPPP..
+...PPKPP...
+...PPKPP...
+....PKP....
+....PKP....
+.....K.....
 """)
 
 shape("star", """
 .....Y.....
 ....YYY....
-....YYY....
-YYYYYYYYYYY
-.YYYYYYYYY.
+....YWY....
+OYYYYWYYYYO
+.YYYWYYYYY.
 ..YYYYYYY..
 ..YYYYYYY..
-.YYY...YYY.
-.YY.....YY.
-YY.......YY
+.YYO...OYY.
+.YO.....OY.
+YO.......OY
 """)
 
 shape("rocket", """
@@ -345,15 +361,15 @@ RR.WWW.RR
 """)
 
 shape("cactus", """
-....GGG....
+....RRR....
 ....GGG....
 .GG.GGG.GG.
-GGG.GGG.GGG
-GGGGGGGGGGG
-GGGGGGGGGGG
-.GGGGGGGGG.
+GWG.GGG.GWG
+GGGGWGGGGGG
+GGGGGGGWGGG
+.GGWGGGGGG.
 ....GGG....
-....GGG....
+....GWG....
 ....GGG....
 ...OOOOO...
 ...OOOOO...
@@ -368,10 +384,10 @@ RRWRRRRRWRR
 RRRRRRRRRRR
 RRRWRRRWRRR
 .RRRRRRRRR.
-..WWWWWWW..
+..KKKKKKK..
 ...WWWWW...
 ...WWWWW...
-...WWWWW...
+...WWKWW...
 ..WWWWWWW..
 """)
 
@@ -380,11 +396,11 @@ shape("present", """
 ..YYY.YYY..
 ...YYYYY...
 PPPPYYYPPPP
-PPPPYYYPPPP
+PPWPYYYPPPP
 PPPPYYYPPPP
 YYYYYYYYYYY
 PPPPYYYPPPP
-PPPPYYYPPPP
+PPPPYYYPWPP
 PPPPYYYPPPP
 PPPPYYYPPPP
 """)
@@ -394,26 +410,26 @@ shape("grapes", """
 ...G.G.....
 ...G..GG...
 ..PPP.PPP..
-.PPPPPPPPP.
-.PPPPPPPPP.
+.PWPPPPPPP.
+.PPPPPWPPP.
 ..PPPPPPP..
-..PPPPPPP..
+..PPWPPPP..
 ...PPPPP...
-...PPPPP...
+...PPWPP...
 ....PPP....
 """)
 
 shape("balloon", """
 ...RRRRR...
-..RRRRRRR..
-.RRRRRRRRR.
+..RWRRRRR..
+.RWWRRRRRR.
+RWWRRRRRRRR
+RWRRRRRRRRR
 RRRRRRRRRRR
-RRRRRRRRRRR
-RRRRRRRRRRR
-.RRRRRRRRR.
-..RRRRRRR..
-...RRRRR...
-....RRR....
+.RRRRRRROO.
+..RRRRROO..
+...ROOOO...
+....OOO....
 ....W.W....
 .....W.....
 .....W.....
@@ -455,8 +471,8 @@ WWWWWWWWW
 WWKWWWKWW
 WWKWWWKWW
 WWWWWWWWW
-WWWWKWWWW
-WWWWKWWWW
+WWWWRWWWW
+WWWWRWWWW
 WWWWWWWWW
 WWKWWWKWW
 WWKWWWKWW
@@ -465,27 +481,48 @@ WWWWWWWWW
 
 
 # Parametric ball shapes (a hand-drawn circle is hard to keep clean at several sizes).
-def make_ball(name, radius, base, spot, spotted):
-    rows = []
+def make_ball(name, radius, base, spots=(), crown=None, shine=None):
+    """A ball of `base` with `spots` painted in quantised patches.
+
+    `spots` used to be a single letter toggled by a checkerboard, which is why every ball was
+    a two-colour object — below the MIN_COLORS floor. It is a tuple now and the patch index is
+    taken modulo the number of tones, so two spot letters give a three-tone patchwork panel
+    ball. `crown` (a cap on the topmost row) and `shine` (a highlight blob) are the way a ball
+    that should stay one solid colour — an orange — still reaches three.
+    """
+    tones = (base,) + tuple(spots)
     n = radius * 2 + 1
+    inside = lambda i, j: (i - radius) ** 2 + (j - radius) ** 2 <= (radius + 0.35) ** 2
+
+    rows = []
     for j in range(n):
         row = ""
         for i in range(n):
-            dx, dy = i - radius, j - radius
-            if dx * dx + dy * dy <= (radius + 0.35) ** 2:
-                # quantised patch pattern so the ball reads as a toy ball, not a blob
-                patch = ((i + 1) // 3 + (j + 1) // 3) % 2 == 0
-                row += spot if (spotted and patch) else base
+            if inside(i, j):
+                row += tones[((i + 1) // 3 + (j + 1) // 3) % len(tones)]
             else:
                 row += "."
         rows.append(row)
-    SHAPES.append({"name": name, "rows": rows, "mode": "round", "depth": 1.0})
+
+    grid = [list(r) for r in rows]
+    if shine:
+        for j, i in ((radius - 2, radius - 2), (radius - 2, radius - 1), (radius - 1, radius - 2)):
+            if 0 <= j < n and 0 <= i < n and inside(i, j):
+                grid[j][i] = shine
+    if crown:
+        for j in range(2):
+            for i in range(n):
+                if inside(i, j):
+                    grid[j][i] = crown
+
+    SHAPES.append({"name": name, "rows": ["".join(r) for r in grid],
+                   "mode": "round", "depth": 1.0})
 
 
-make_ball("soccer_ball", 5, "W", "K", True)
-make_ball("beach_ball", 5, "R", "W", True)
-make_ball("orange_fruit", 4, "O", "O", False)
-make_ball("planet", 6, "P", "W", True)
+make_ball("soccer_ball", 5, "W", spots=("K", "R"))
+make_ball("beach_ball", 5, "R", spots=("W", "Y"))
+make_ball("orange_fruit", 4, "O", crown="G", shine="W")
+make_ball("planet", 6, "P", spots=("W", "Y"))
 
 
 # ---------------------------------------------------------------------------
@@ -718,6 +755,17 @@ def check_bank(level, voxels, bank, bank_colors):
                              % (level, max(bank), BLOCK_MIN, BLOCK_MAX))
 
 
+def check_colors(level, sh, voxels):
+    """`sets_supporting` already refuses a set that cannot keep MIN_COLORS letters apart, but
+    that is a check on the ART. This one is on the CUBES, which is what the player sees: a
+    detail small enough to survive the resample as zero cubes (a one-pixel shine on a heavily
+    downscaled map) would pass the first check and still ship a two-colour level."""
+    used = {v["c"] for v in voxels}
+    if len(used) < MIN_COLORS:
+        raise AssertionError("level %d (%s) renders only %d colour(s) %s — MIN_COLORS is %d"
+                             % (level, sh["name"], len(used), sorted(used), MIN_COLORS))
+
+
 # ---------------------------------------------------------------------------
 # Level plan: which shape, how deep, which palette
 # ---------------------------------------------------------------------------
@@ -877,6 +925,7 @@ def main():
         voxels = build_voxels(sh, palette_set, bulk, factor)
         bank, bank_colors = build_bank(voxels, level, rng)
         check_bank(level, voxels, bank, bank_colors)
+        check_colors(level, sh, voxels)
 
         data = {
             "scriptGuid": script_guid,

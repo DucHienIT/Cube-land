@@ -29,6 +29,11 @@ namespace CubeBlaster
 
         public virtual void Refresh() { }
 
+        /// Called once at build time and again whenever the screen crosses between portrait and
+        /// landscape. Screens that lay themselves out with fractional anchors need nothing here;
+        /// only the ones whose layout genuinely differs between the two override it.
+        public virtual void ApplyLayout(bool landscape) { }
+
         protected GameObject MakeRoot(string name, RectTransform parent)
         {
             var go = UIFactory.Panel(name, parent, PaletteConfig.Active.background, true);

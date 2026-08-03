@@ -19,11 +19,13 @@ namespace CubeBlaster
     /// two draws per colour on screen, whatever the dart count.
     public sealed class DartField
     {
-        /// A dart may never be recycled while it is still flying — ammo is exact, so a dart that
-        /// disappears without resolving its hit leaves a voxel nobody can ever shoot. The array
-        /// therefore GROWS instead of overwriting the oldest, and this is only the size it starts
-        /// at: a barrage settles at ~90 and never allocates again.
-        const int InitialCapacity = 128;
+        /// Floor under GameConfig.dartPoolCapacity, for the case where the field is ticked before
+        /// a config is resolved. A dart may never be recycled while it is still flying — ammo is
+        /// exact, so a dart that disappears without resolving its hit leaves a voxel nobody can
+        /// ever shoot — so the array GROWS rather than overwriting the oldest, and a grow is a
+        /// full array copy on the busiest frame of the level. Sizing it once at Configure is
+        /// what keeps that off the frame where all four guns open up.
+        const int MinimumCapacity = 32;
         const float MinArcLength = 0.1f;
         const float MinSquaredMagnitude = 1e-8f;
 
@@ -53,7 +55,7 @@ namespace CubeBlaster
 
         IDartContext _context;
         Mesh _mesh;
-        DartInstance[] _darts = new DartInstance[InitialCapacity];
+        DartInstance[] _darts = new DartInstance[MinimumCapacity];
         int _next;
 
         public DartField(Transform host)
@@ -63,10 +65,20 @@ namespace CubeBlaster
 
         public void Configure(IDartContext context, VisualLibrary library, int paletteSet)
         {
+            Reserve(GameConfig.Active.dartPoolCapacity);
             Clear();
             _context = context;
             _mesh = library != null ? library.GetDartMesh() : null;
             _batcher.Configure(BuildMaterials(library, paletteSet));
+        }
+
+        /// Grows the array to the configured capacity at LEVEL LOAD, where a copy costs nothing,
+        /// so the peak of a four-gun barrage never has to. Never shrinks: a smaller array would
+        /// have to drop darts that are still in the air.
+        void Reserve(int capacity)
+        {
+            capacity = Mathf.Max(MinimumCapacity, capacity);
+            if (_darts.Length < capacity) _darts = new DartInstance[capacity];
         }
 
         public void Clear()
