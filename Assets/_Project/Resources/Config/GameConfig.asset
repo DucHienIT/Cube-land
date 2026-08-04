@@ -1,0 +1,113 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: abb92691e8a784040aa4066c7b976d2e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  targetFrameRate: 60
+  voxelCastShadows: 0
+  voxelSize: 0.25
+  voxelGap: 0.018
+  voxelCornerRadius: 0.16
+  voxelRoundSegments: 3
+  voxelLightRampSmoothing: 0.42
+  voxelHighlightStrength: 0.86
+  voxelValueJitter: 0.04
+  voxelHueJitter: 0.02
+  voxelScaleJitter: 0.02
+  ambientSky: {r: 0.68, g: 0.62, b: 0.58, a: 1}
+  ambientEquator: {r: 0.44, g: 0.46, b: 0.56, a: 1}
+  ambientGround: {r: 0.3, g: 0.3, b: 0.4, a: 1}
+  sculptureCenter: {x: 0, y: 3.2, z: 0}
+  sculptureTilt: 55
+  sculptureScale: 1
+  sculptureRestYaw: 26
+  sculptureFillWidth: 0.68
+  hitPunchScale: 0.14
+  hitPunchTime: 0.12
+  hitPunchRadius: 1.8
+  hitFlashTime: 0.08
+  hitFlashIntensity: 0.35
+  popTime: 0.17
+  popSwell: 0.3
+  popSwellPhase: 0.3
+  popRise: 0.09
+  popFlash: 0.85
+  popSpin: 70
+  popMaxActive: 96
+  shockwaveTime: 0.22
+  shockwaveStartSize: 0.3
+  shockwaveEndSize: 0.85
+  shockwaveAlpha: 0.72
+  shockwaveCameraLift: 0.25
+  shockwaveWhiten: 0.55
+  shockwaveMaxActive: 40
+  gunSlotCount: 4
+  gunFireInterval: 0.03
+  gunSlotSpacing: 1.35
+  gunSlotY: 0
+  gunSlotZ: -2.6
+  gunTintMaxValue: 0.8
+  gunBodyRadius: 0.26
+  gunBodySegments: 5
+  gunBodySize: {x: 0.92, y: 0.8, z: 0.94}
+  gunBarrelElevation: 0
+  gunBarrelLength: 0.41
+  gunBarrelRadius: 0.228
+  gunPuckSides: 20
+  gunPuckRim: 0.14
+  dartSpeed: 28
+  dartLife: 2
+  dartTrailTime: 0.11
+  dartTrailWidth: 0.16
+  dartBulletSize: 0.22
+  dartHitScatter: 0
+  dartApproachOffset: 2.4
+  dartPoolCapacity: 200
+  bankSlotSpacing: 1.5
+  bankRowSpacing: 0.96
+  bankY: 0
+  bankZ: -4.8
+  bankVisibleRows: 3
+  bankVisibleRowsLandscape: 2
+  bankOutlineWidth: 0.16
+  rotateSensitivity: 0.3
+  cameraOrthographic: 0
+  cameraPitch: 75
+  cameraFov: 32
+  cameraFitBottomY: -5.2
+  cameraFitBottomYLandscape: -4.7
+  cameraTopMargin: 0.8
+  cameraTopReserve: 0.18
+  cameraTopReserveLandscape: 0.11
+  winPopupDelay: 0.7
+  cameraFitPadding: 1.06
+  shakeOnHit: 0
+  toonHighlight: {r: 0.9, g: 0.84, b: 0.78, a: 1}
+  toonShadow: {r: 0.44, g: 0.38, b: 0.42, a: 1}
+  toonRampThreshold: 0.49
+  toonRampSmoothing: 0.22
+  toonSpecSize: 0.2
+  toonSpecSmoothing: 0.32
+  toonSpecColor: {r: 0.2, g: 0.17, b: 0.15, a: 1}
+  postProcessing: 1
+  postBloomIntensity: 0.055
+  postVignette: 0.13
+  postSaturation: 13
+  postContrast: 10
+  postExposure: 0
+  bgGradientStrength: 0.09
+  bgGradientRadius: 0.62
+  bgGradientTint: 0.1
+  aoIntensity: 0.95
+  aoRadius: 0.2
+  aoDirectStrength: 0.25
+  coinsPerLevel: 20

@@ -1,0 +1,716 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cube Blaster — Class Diagram</title>
+<style>
+  :root{
+    --bg:#0f1626; --bg2:#151f34; --panel:#18233c; --panel2:#1d2a47;
+    --ink:#e8eefc; --ink-dim:#93a3c4; --line:#2b3a5e;
+    --acc:#5aa9ff; --acc2:#ffc94a;
+    --mono:#4fd1a5;    /* MonoBehaviour */
+    --iface:#ffc94a;   /* interface */
+    --plain:#8fb4ff;   /* plain class */
+    --static:#c58cff;  /* static */
+    --so:#ff8a5c;      /* ScriptableObject */
+    --struct:#7fe0ff;  /* struct/enum */
+    --abstract:#ff9ec4;
+  }
+  @media (prefers-color-scheme: light){
+    :root{
+      --bg:#f2f5fb; --bg2:#e8edf7; --panel:#ffffff; --panel2:#f6f8fd;
+      --ink:#16203a; --ink-dim:#5b6b8c; --line:#c9d4e8;
+      --acc:#1f6fd0; --acc2:#a86b00;
+      --mono:#0f8f6b; --iface:#a86b00; --plain:#2b5fbf; --static:#7b3fc4;
+      --so:#c2521f; --struct:#0d7f9e; --abstract:#b8407a;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0f1626; --bg2:#151f34; --panel:#18233c; --panel2:#1d2a47;
+    --ink:#e8eefc; --ink-dim:#93a3c4; --line:#2b3a5e;
+    --acc:#5aa9ff; --acc2:#ffc94a;
+    --mono:#4fd1a5; --iface:#ffc94a; --plain:#8fb4ff; --static:#c58cff;
+    --so:#ff8a5c; --struct:#7fe0ff; --abstract:#ff9ec4;
+  }
+  :root[data-theme="light"]{
+    --bg:#f2f5fb; --bg2:#e8edf7; --panel:#ffffff; --panel2:#f6f8fd;
+    --ink:#16203a; --ink-dim:#5b6b8c; --line:#c9d4e8;
+    --acc:#1f6fd0; --acc2:#a86b00;
+    --mono:#0f8f6b; --iface:#a86b00; --plain:#2b5fbf; --static:#7b3fc4;
+    --so:#c2521f; --struct:#0d7f9e; --abstract:#b8407a;
+  }
+
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font:14px/1.5 "Segoe UI",system-ui,-apple-system,sans-serif;
+  }
+  .wrap{max-width:1500px;margin:0 auto;padding:24px 18px 80px}
+  header h1{margin:0 0 4px;font-size:26px;letter-spacing:-.02em}
+  header p{margin:0;color:var(--ink-dim)}
+  .meta{margin-top:10px;color:var(--ink-dim);font-size:12.5px}
+  .meta code{background:var(--panel2);padding:1px 6px;border-radius:5px;border:1px solid var(--line)}
+
+  .bar{
+    display:flex;flex-wrap:wrap;gap:10px;align-items:center;
+    margin:20px 0 12px;padding:12px;background:var(--panel);
+    border:1px solid var(--line);border-radius:12px;position:sticky;top:0;z-index:20;
+  }
+  .bar input[type=search]{
+    flex:1 1 240px;min-width:180px;background:var(--bg2);color:var(--ink);
+    border:1px solid var(--line);border-radius:8px;padding:8px 11px;font:inherit;
+  }
+  .bar input[type=search]:focus{outline:2px solid var(--acc);outline-offset:1px}
+  .chip{
+    background:var(--bg2);color:var(--ink-dim);border:1px solid var(--line);
+    border-radius:999px;padding:6px 12px;cursor:pointer;font:inherit;font-size:12.5px;
+    user-select:none;
+  }
+  .chip[aria-pressed="true"]{background:var(--acc);color:#fff;border-color:transparent}
+  .chip:hover{color:var(--ink)}
+
+  h2{margin:34px 0 10px;font-size:18px;display:flex;align-items:center;gap:10px}
+  h2 .n{color:var(--ink-dim);font-weight:400;font-size:13px}
+
+  .legend{display:flex;flex-wrap:wrap;gap:14px;margin:10px 0 6px;font-size:12.5px;color:var(--ink-dim)}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .sw{width:11px;height:11px;border-radius:3px;display:inline-block}
+  .lk{width:26px;height:0;border-top:2px solid var(--ink-dim);display:inline-block}
+  .lk.dash{border-top-style:dashed}
+
+  .diagram{
+    background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    padding:8px;overflow-x:auto;
+  }
+  .diagram svg{display:block;min-width:1100px;width:100%;height:auto}
+  .node rect{transition:opacity .15s, filter .15s}
+  .node{cursor:pointer}
+  .node .nm{font:600 13px "Segoe UI",sans-serif;fill:var(--ink)}
+  .node .sb{font:11px "Segoe UI",sans-serif;fill:var(--ink-dim)}
+  .edge{fill:none;stroke:var(--line);stroke-width:1.6}
+  .edge.impl{stroke-dasharray:5 4}
+  .edge.uses{stroke-dasharray:2 3}
+  svg.focus .node{opacity:.16}
+  svg.focus .node.on{opacity:1}
+  svg.focus .edge{opacity:.05}
+  svg.focus .edge.on{opacity:1;stroke:var(--acc);stroke-width:2.2}
+  .node.hit rect{stroke:var(--acc2) !important;stroke-width:2.5}
+  .hint{color:var(--ink-dim);font-size:12.5px;margin:8px 2px 0}
+
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:14px}
+  .card{
+    background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    overflow:hidden;display:flex;flex-direction:column;
+  }
+  .card.hide{display:none}
+  .card .hd{padding:10px 12px;border-bottom:1px solid var(--line);background:var(--panel2)}
+  .card .st{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-dim)}
+  .card .tt{font-weight:700;font-size:15px;margin:2px 0 0;word-break:break-word}
+  .card .im{font-size:11.5px;color:var(--ink-dim);margin-top:3px}
+  .card .im b{color:var(--iface);font-weight:600}
+  .card .bd{padding:9px 12px;font-size:12.5px}
+  .card .bd + .bd{border-top:1px dashed var(--line)}
+  .card ul{margin:0;padding:0;list-style:none}
+  .card li{
+    font-family:ui-monospace,"Cascadia Mono",Consolas,monospace;font-size:11.5px;
+    color:var(--ink-dim);padding:1.5px 0;word-break:break-word;
+  }
+  .card li b{color:var(--ink);font-weight:600}
+  .card .note{color:var(--ink-dim);font-size:12px;line-height:1.45}
+  .card .pth{
+    font-family:ui-monospace,Consolas,monospace;font-size:10.5px;color:var(--ink-dim);
+    padding:7px 12px;border-top:1px solid var(--line);margin-top:auto;opacity:.8;
+  }
+  .k-mono{border-left:4px solid var(--mono)}
+  .k-iface{border-left:4px solid var(--iface)}
+  .k-plain{border-left:4px solid var(--plain)}
+  .k-static{border-left:4px solid var(--static)}
+  .k-so{border-left:4px solid var(--so)}
+  .k-struct{border-left:4px solid var(--struct)}
+  .k-abstract{border-left:4px solid var(--abstract)}
+  .empty{color:var(--ink-dim);padding:20px;text-align:center;display:none}
+
+  .flow{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+  .flow ol{margin:0;padding-left:20px}
+  .flow li{margin:5px 0;color:var(--ink-dim)}
+  .flow li b{color:var(--ink)}
+  .flow code{background:var(--bg2);padding:1px 5px;border-radius:4px;font-size:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Cube Blaster — Class Diagram</h1>
+  <p>Toàn bộ hệ thống code first-party trong <code>Assets/_Project/Scripts/</code> · namespace <code>CubeBlaster</code></p>
+  <div class="meta">
+    Kiến trúc: MonoBehaviour mỏng (giữ serialized ref + Unity lifecycle) → uỷ quyền cho plain class;
+    mọi collaborator đi qua interface; service thiếu thì rơi về Null-Object.
+  </div>
+</header>
+
+<div class="bar">
+  <input type="search" id="q" placeholder="Tìm class / interface / method…" autocomplete="off">
+  <button class="chip" data-layer="Config" aria-pressed="true">Config</button>
+  <button class="chip" data-layer="Core" aria-pressed="true">Core</button>
+  <button class="chip" data-layer="Gameplay" aria-pressed="true">Gameplay</button>
+  <button class="chip" data-layer="Services" aria-pressed="true">Services</button>
+  <button class="chip" data-layer="UI" aria-pressed="true">UI</button>
+  <button class="chip" data-layer="Shared" aria-pressed="true">Shared</button>
+  <button class="chip" data-layer="Editor" aria-pressed="true">Editor</button>
+  <button class="chip" id="reset">Reset</button>
+</div>
+
+<h2>1 · Sơ đồ quan hệ tổng thể</h2>
+<div class="legend">
+  <span><i class="sw" style="background:var(--mono)"></i>MonoBehaviour</span>
+  <span><i class="sw" style="background:var(--iface)"></i>interface</span>
+  <span><i class="sw" style="background:var(--plain)"></i>plain class</span>
+  <span><i class="sw" style="background:var(--static)"></i>static facade</span>
+  <span><i class="sw" style="background:var(--so)"></i>ScriptableObject</span>
+  <span><i class="sw" style="background:var(--struct)"></i>struct / enum</span>
+  <span><i class="sw" style="background:var(--abstract)"></i>abstract</span>
+  <span><i class="lk"></i>owns / creates</span>
+  <span><i class="lk dash"></i>implements / uses</span>
+</div>
+<div class="diagram"><svg id="svg" viewBox="0 0 1445 1180" role="img" aria-label="Sơ đồ quan hệ class"></svg></div>
+<p class="hint">Bấm vào một node để chỉ hiện các quan hệ của nó — bấm nền để bỏ chọn. Gõ vào ô tìm kiếm sẽ highlight node khớp.</p>
+
+<h2>2 · Luồng chạy chính</h2>
+<div class="flow">
+  <ol>
+    <li><b>Boot</b> — <code>GameBootstrap</code> (<code>[DefaultExecutionOrder(-100)]</code>) nạp 3 config asset vào locator
+        <code>GameConfig.Active</code> / <code>PaletteConfig.Active</code> / <code>VisualLibrary.Active</code>, bật post + SMAA, set ambient/light.</li>
+    <li><b>Start</b> — <code>GameManager.Start()</code> → <code>UIController.Initialize(this as IGameFlow)</code> → dựng 5 screen (ẩn) → <code>ShowMainMenu()</code>.</li>
+    <li><b>StartLevel(n)</b> — <code>LevelLibrary.Load(n)</code> (Resource → fallback Procedural) → <code>new VoxelModel(data)</code> →
+        <code>SculptureView.Initialize(model, palette)</code> → <code>new ExposedTargetSelector(model, new CameraVoxelVisibility(...))</code> →
+        <code>BuildSlots()</code> → <code>BankArea.Initialize()</code> → <code>BoardInput.Initialize(this as IBoardContext)</code> → <code>CameraRig.FitTo(bounds)</code>.</li>
+    <li><b>Input</b> — <code>BoardInput</code> chỉ định tuyến: gesture đầu tiên <code>TryBegin()</code> thắng.
+        <code>BlockDragGesture</code> (kéo block hàng 0 → deploy / tap → slot trống đầu) hoặc <code>TurntableGesture</code> (xoay bàn xoay).</li>
+    <li><b>Deploy</b> — <code>IBoardContext.DeployBlock(block, slot)</code> → chặn nếu màu đó đã hết voxel → <code>GunSlot.Deploy(ammo, colorIndex)</code> → sinh <code>Gun</code>.</li>
+    <li><b>Bắn</b> — <code>Gun</code> tự động gọi <code>IShooterContext.RequestTarget(color)</code> → selector <b>reserve</b> voxel lộ ra camera →
+        <code>SpawnDart(index, muzzle, barrel.forward)</code>. Gun về hưu khi <code>CountAliveOfColor()==0</code> dù còn đạn.</li>
+    <li><b>Trúng</b> — <code>Dart</code> bay theo <code>DartArc</code> (bezier rời nòng → bổ theo tia camera) → <code>IDartContext.ResolveDartHit()</code> →
+        <code>targets.Release()</code> + <code>VoxelModel.DestroyVoxel()</code>.</li>
+    <li><b>Phản hồi</b> — event <code>VoxelDestroyed</code> → <code>SculptureView</code> chạy <code>DestructionEffects</code> (flash/burst/shards/puff qua <code>IFxService</code>),
+        <code>FragmentEmitter</code> (debris pooled), <code>VoxelCubeField.PunchAround()</code> (punch + flash hàng xóm), <code>CameraRig.Rig.Shake()</code>.</li>
+    <li><b>Thắng</b> — event <code>AllCleared</code> → <code>IStarRule.Evaluate()</code> → <code>SaveSystem</code> (stars/coins/unlock) → <code>UIController.ShowWin()</code>.</li>
+  </ol>
+</div>
+
+<h2>3 · Danh mục class <span class="n" id="count"></span></h2>
+<div id="cards"></div>
+<div class="empty" id="empty">Không có class nào khớp.</div>
+
+</div>
+
+<script>
+/* ─────────────────────────── DIAGRAM DATA ─────────────────────────── */
+const COLX=[40,273,506,739,972,1205], CW=200, ROWY=[30,152,286,406,528,656,786,910,1030];
+
+const NODES=[
+ {id:'GameBootstrap',c:0,r:0,k:'mono',sub:'nạp config · camera · light'},
+ {id:'GameConfig',c:2,r:0,k:'so',sub:'static Active / Use()'},
+ {id:'PaletteConfig',c:3,r:0,k:'so',sub:'static Active / Use()'},
+ {id:'VisualLibrary',c:4,r:0,k:'so',sub:'mesh/mat/FX đã bake'},
+ {id:'CameraRig',c:5,r:0,k:'mono',sub:'static Main·Rig · FitTo · Shake'},
+
+ {id:'UIController',c:0,r:1,k:'mono',sub:'«IUIHost»'},
+ {id:'BoardInput',c:1,r:1,k:'mono',sub:'gesture router'},
+ {id:'GameManager',c:2,r:1,span:2,k:'mono',sub:'orchestrator — IGameFlow · IShooterContext · IDartContext · IBoardContext',h:76},
+ {id:'BankArea',c:4,r:1,k:'mono',sub:'cột block, layout'},
+ {id:'SculptureView',c:5,r:1,k:'mono',sub:'«ISculptureSpace, ISpinnable»'},
+
+ {id:'IUIHost',c:0,r:2,k:'iface'},
+ {id:'IBoardContext',c:1,r:2,k:'iface'},
+ {id:'IGameFlow',c:2,r:2,k:'iface'},
+ {id:'IShooterContext',c:3,r:2,k:'iface'},
+ {id:'IDartContext',c:4,r:2,k:'iface'},
+ {id:'ISpinnable',c:5,r:2,k:'iface',sub:'+ ISculptureSpace'},
+
+ {id:'UIScreen',c:0,r:3,k:'abstract',sub:'«IUIScreen»'},
+ {id:'IPointerGesture',c:1,r:3,k:'iface'},
+ {id:'GunSlot',c:3,r:3,k:'mono',sub:'Deploy / ReleaseGun'},
+ {id:'Dart',c:4,r:3,k:'mono',sub:'bám voxel sống'},
+ {id:'VoxelCubeField',c:5,r:3,k:'plain',sub:'cubes + punch ripple'},
+
+ {id:'Screens',c:0,r:4,k:'plain',label:'MainMenu · LevelSelect · Hud',sub:'Win · Settings Screen'},
+ {id:'BlockDragGesture',c:1,r:4,k:'plain',sub:'kéo block → deploy'},
+ {id:'TurntableGesture',c:2,r:4,k:'plain',sub:'kéo → xoay'},
+ {id:'Gun',c:3,r:4,k:'mono',sub:'auto-fire · khoá màu'},
+ {id:'DartArc',c:4,r:4,k:'struct',sub:'bezier bậc 3'},
+ {id:'Turntable',c:5,r:4,k:'plain',sub:'«ISpinnable»'},
+
+ {id:'UIFactory',c:0,r:5,k:'static',sub:'+ SpriteFactory'},
+ {id:'BankBlock',c:1,r:5,k:'mono',sub:'Row 0 mới chơi được'},
+ {id:'ColliderRegistry',c:2,r:5,k:'plain',label:'ColliderRegistry<T>'},
+ {id:'RecoilSpring',c:3,r:5,k:'plain',sub:'squash giật'},
+ {id:'VoxelCube',c:4,r:5,k:'mono',sub:'punch/flash/explode'},
+ {id:'SculptureLayout',c:5,r:5,k:'plain',sub:'vị trí + bounds nghiêng'},
+
+ {id:'VoxelModel',c:0,r:6,k:'plain',sub:'«IVoxelGrid» + events'},
+ {id:'ExposedTargetSelector',c:1,r:6,k:'plain',sub:'«ITargetSelector»'},
+ {id:'CameraVoxelVisibility',c:2,r:6,k:'plain',sub:'«IVoxelVisibility»'},
+ {id:'LevelLibrary',c:3,r:6,k:'static',sub:'Resource → Procedural'},
+ {id:'TimeStarRule',c:4,r:6,k:'plain',sub:'«IStarRule»'},
+ {id:'LevelData',c:5,r:6,k:'plain',sub:'+ VoxelDef / VoxelCell'},
+
+ {id:'AudioService',c:0,r:7,k:'static',sub:'Current → IAudioService'},
+ {id:'AudioManager',c:1,r:7,k:'mono',sub:'«IAudioService»'},
+ {id:'FxService',c:2,r:7,k:'static',sub:'Current → IFxService'},
+ {id:'ParticleFxService',c:3,r:7,k:'plain',sub:'«IFxService»'},
+ {id:'SaveSystem',c:4,r:7,k:'static',sub:'→ ISaveRepository'},
+ {id:'DebrisPool',c:5,r:7,k:'plain',sub:'«IDebrisPool» Shared'},
+
+ {id:'DestructionEffects',c:0,r:8,k:'plain',sub:'flash·burst·shards·puff'},
+ {id:'FragmentEmitter',c:1,r:8,k:'plain',sub:'mảnh vỡ pooled'},
+ {id:'Debris',c:2,r:8,k:'mono',sub:'tự trả về pool'},
+ {id:'RendererTinter',c:3,r:8,k:'plain',sub:'+ ColorTools · Ease'},
+ {id:'CameraFramingSolver',c:4,r:8,k:'static',sub:'fill-width framing'},
+ {id:'Backdrop',c:5,r:8,k:'mono',sub:'+ Billboard'},
+];
+
+const EDGES=[
+ ['GameBootstrap','GameConfig','uses'],['GameBootstrap','PaletteConfig','uses'],['GameBootstrap','VisualLibrary','uses'],
+ ['GameManager','IGameFlow','impl'],['GameManager','IShooterContext','impl'],['GameManager','IDartContext','impl'],['GameManager','IBoardContext','impl'],
+ ['GameManager','UIController','own'],['GameManager','BoardInput','own'],['GameManager','BankArea','own'],['GameManager','SculptureView','own'],
+ ['GameManager','CameraRig','uses'],['GameManager','GunSlot','own'],['GameManager','Dart','own'],
+ ['GameManager','VoxelModel','own'],['GameManager','ExposedTargetSelector','own'],['GameManager','LevelLibrary','uses'],
+ ['GameManager','TimeStarRule','uses'],['GameManager','SaveSystem','uses'],['GameManager','AudioService','uses'],['GameManager','VisualLibrary','uses'],
+ ['UIController','IUIHost','impl'],['UIController','IGameFlow','uses'],['UIController','Screens','own'],
+ ['UIScreen','IUIHost','uses'],['Screens','UIScreen','impl'],['UIScreen','UIFactory','uses'],
+ ['BoardInput','IBoardContext','uses'],['BoardInput','IPointerGesture','own'],
+ ['BlockDragGesture','IPointerGesture','impl'],['TurntableGesture','IPointerGesture','impl'],
+ ['BlockDragGesture','IBoardContext','uses'],['BlockDragGesture','BankBlock','uses'],['TurntableGesture','ISpinnable','uses'],
+ ['GunSlot','IShooterContext','uses'],['GunSlot','Gun','own'],['Gun','IShooterContext','uses'],
+ ['Gun','RecoilSpring','own'],['Gun','RendererTinter','uses'],
+ ['Dart','IDartContext','uses'],['Dart','DartArc','uses'],
+ ['SculptureView','ISpinnable','impl'],['SculptureView','VoxelCubeField','own'],['SculptureView','Turntable','own'],
+ ['SculptureView','SculptureLayout','own'],['SculptureView','DestructionEffects','own'],['SculptureView','FragmentEmitter','own'],
+ ['SculptureView','VoxelModel','uses'],
+ ['VoxelCubeField','VoxelCube','own'],['VoxelCubeField','VisualLibrary','uses'],
+ ['BankArea','BankBlock','own'],['BankBlock','ColliderRegistry','uses'],['BankBlock','RendererTinter','uses'],['VoxelCube','RendererTinter','uses'],
+ ['ExposedTargetSelector','VoxelModel','uses'],['ExposedTargetSelector','CameraVoxelVisibility','uses'],
+ ['CameraVoxelVisibility','ISpinnable','uses'],['CameraVoxelVisibility','CameraRig','uses'],
+ ['LevelLibrary','LevelData','own'],['VoxelModel','LevelData','uses'],
+ ['DestructionEffects','FxService','uses'],['FxService','ParticleFxService','uses'],['ParticleFxService','VisualLibrary','uses'],
+ ['FragmentEmitter','DebrisPool','uses'],['DebrisPool','Debris','own'],
+ ['AudioManager','AudioService','uses'],
+ ['CameraRig','CameraFramingSolver','uses'],
+ ['GameManager','GameConfig','uses'],
+];
+
+/* ─────────────────────────── DIAGRAM RENDER ─────────────────────────── */
+const SVG='http://www.w3.org/2000/svg';
+const svg=document.getElementById('svg');
+const box={};
+function el(n,a){const e=document.createElementNS(SVG,n);for(const k in a)e.setAttribute(k,a[k]);return e;}
+
+const defs=el('defs');
+defs.innerHTML=
+ '<marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">'+
+ '<path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker>'+
+ '<marker id="ao" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">'+
+ '<path d="M0 0 L10 5 L0 10 z" fill="none" stroke="currentColor" stroke-width="1.6"/></marker>';
+svg.appendChild(defs);
+const gEdge=el('g'),gNode=el('g');svg.appendChild(gEdge);svg.appendChild(gNode);
+
+NODES.forEach(n=>{
+  const w=CW*(n.span||1)+(n.span?( (n.span-1)*33 ):0);
+  const x=COLX[n.c], y=ROWY[n.r], h=n.h||(n.sub?54:40);
+  box[n.id]={x,y,w,h,cx:x+w/2,cy:y+h/2,k:n.k};
+});
+
+EDGES.forEach(([a,b,t],i)=>{
+  const A=box[a],B=box[b];if(!A||!B)return;
+  let p;
+  const dy=B.cy-A.cy, dx=B.cx-A.cx;
+  if(Math.abs(dy)>50){
+    const y1=dy>0?A.y+A.h:A.y, y2=dy>0?B.y:B.y+B.h;
+    const k=Math.min(70,Math.abs(y2-y1)*0.55);
+    p=`M${A.cx} ${y1} C${A.cx} ${y1+(dy>0?k:-k)} ${B.cx} ${y2-(dy>0?k:-k)} ${B.cx} ${y2}`;
+  }else{
+    const x1=dx>0?A.x+A.w:A.x, x2=dx>0?B.x:B.x+B.w;
+    const k=Math.min(80,Math.abs(x2-x1)*0.6)+20;
+    p=`M${x1} ${A.cy} C${x1+(dx>0?k:-k)} ${A.cy} ${x2-(dx>0?k:-k)} ${B.cy} ${x2} ${B.cy}`;
+  }
+  const cls=t==='impl'?'edge impl':(t==='uses'?'edge uses':'edge');
+  const e=el('path',{d:p,class:cls,'marker-end':t==='impl'?'url(#ao)':'url(#ar)'});
+  e.dataset.a=a;e.dataset.b=b;e.style.color='var(--line)';
+  gEdge.appendChild(e);
+});
+
+NODES.forEach(n=>{
+  const B=box[n.id];
+  const g=el('g',{class:'node'});g.dataset.id=n.id;
+  const col=`var(--${n.k})`;
+  g.appendChild(el('rect',{x:B.x,y:B.y,width:B.w,height:B.h,rx:9,
+    fill:'var(--panel2)',stroke:col,'stroke-width':1.6}));
+  g.appendChild(el('rect',{x:B.x,y:B.y,width:4,height:B.h,rx:2,fill:col}));
+  const t=el('text',{x:B.x+12,y:B.y+(n.sub?21:24),class:'nm'});
+  t.textContent=n.label||n.id;g.appendChild(t);
+  if(n.sub){
+    const words=n.sub.split(' ');const lines=[];let cur='';
+    const max=Math.floor((B.w-20)/5.4);
+    words.forEach(w=>{if((cur+' '+w).trim().length>max){lines.push(cur.trim());cur=w;}else cur+=' '+w;});
+    if(cur.trim())lines.push(cur.trim());
+    lines.slice(0,3).forEach((ln,i)=>{
+      const s=el('text',{x:B.x+12,y:B.y+37+i*13,class:'sb'});s.textContent=ln;g.appendChild(s);
+    });
+  }
+  gNode.appendChild(g);
+});
+
+let focused=null;
+function focus(id){
+  focused=id;
+  if(!id){svg.classList.remove('focus');
+    gNode.querySelectorAll('.node').forEach(n=>n.classList.remove('on'));
+    gEdge.querySelectorAll('.edge').forEach(e=>e.classList.remove('on'));return;}
+  const rel=new Set([id]);
+  EDGES.forEach(([a,b])=>{if(a===id)rel.add(b);if(b===id)rel.add(a);});
+  svg.classList.add('focus');
+  gNode.querySelectorAll('.node').forEach(n=>n.classList.toggle('on',rel.has(n.dataset.id)));
+  gEdge.querySelectorAll('.edge').forEach(e=>e.classList.toggle('on',e.dataset.a===id||e.dataset.b===id));
+}
+gNode.addEventListener('click',e=>{
+  const g=e.target.closest('.node');if(!g)return;e.stopPropagation();
+  focus(focused===g.dataset.id?null:g.dataset.id);
+});
+svg.addEventListener('click',()=>focus(null));
+
+/* ─────────────────────────── CLASS CATALOG ─────────────────────────── */
+const C=[
+/* ── Config ── */
+{l:'Config',n:'ConfigProvider<T>',k:'plain',f:'Config/ConfigProvider.cs',
+ note:'Locator chung cho cả 3 config asset: serialized override → Resources/Config → CreateInstance mặc định.',
+ m:['+ ConfigProvider(resourcePath)','+ Use(asset)','+ Active : T']},
+{l:'Config',n:'GameConfig',k:'so',f:'Config/GameConfig.cs',
+ note:'Toàn bộ tunable — không hardcode ở nơi khác. Nhóm: voxel/sculpture, camera, gun/dart, bank, destruction juice, toon shading seed, post/AO seed.',
+ m:['+ static Active : GameConfig','+ static Use(asset)','voxelSize · voxelGap · voxelCornerRadius','sculptureTilt · sculptureFillWidth · sculptureRestYaw','cameraPitch · cameraFov · cameraFitPadding','gunSlotSpacing · gunFireRate · gunTintMaxValue','gunBodySize · gunBarrelLength · gunPuckRim','fxBurstCount · fxShardCount · fxPuffCount','debrisMediumCount · debrisSmallCount · debrisMaxActive','hitPunchScale · hitFlashTime · shakeOnHit','toonHighlight · toonShadow · toonRamp* · toonSpec*']},
+{l:'Config',n:'PaletteConfig',k:'so',f:'Config/PaletteConfig.cs',
+ note:'Màu nền + 4 bộ palette voxel (mỗi bộ 6 slot màu).',
+ m:['+ static Active : PaletteConfig','+ static Use(asset)','background : Color','voxel sets × color slots']},
+{l:'Config',n:'VisualLibrary',k:'so',f:'Config/VisualLibrary.cs',
+ note:'Hub duy nhất của mọi asset visual đã bake. Chỉ chứa asset — chính sách màu nằm ở ColorTools/RendererTinter.',
+ m:['+ static Active / Use(asset)','+ voxelSets : MaterialSet[]','+ backdrop · slotPad · dartBullet · dartTrail : Material','+ fxBurst · fxShards · fxFlash · fxRing : ParticleSystem','+ debrisPrefab : Debris','+ GetVoxelMaterial(set, slot) : Material','+ GetVoxelColor(set, slot) : Color']},
+{l:'Config',n:'VisualLibrary.MaterialSet',k:'plain',f:'Config/VisualLibrary.cs',
+ note:'Nested type duy nhất được phép ở chung file.',m:['+ colors : Material[]']},
+
+/* ── Core / Voxel ── */
+{l:'Core',n:'IVoxelGrid',k:'iface',f:'Core/Voxel/IVoxelGrid.cs',
+ note:'Read-only view của lưới voxel — thứ mà targeting/layout thấy.',
+ m:['+ Count : int','+ AliveCount : int','+ IsAlive(index) : bool','+ GetCell(index) : VoxelCell','+ InBounds(x,y,z) : bool','+ GetIndexAt(x,y,z) : int','+ CountAliveOfColor(colorIndex) : int']},
+{l:'Core',n:'VoxelCell',k:'struct',f:'Core/Voxel/VoxelCell.cs',
+ note:'readonly struct — ô lưới bất biến.',
+ m:['+ X · Y · Z · ColorIndex : int','+ Alive : bool','+ GridPosition : Vector3','+ AsDead() : VoxelCell','+ SameCoordinate(x,y,z) : bool']},
+{l:'Core',n:'VoxelModel',k:'plain',im:'IVoxelGrid',f:'Core/Voxel/VoxelModel.cs',
+ note:'State runtime của khối điêu khắc + đếm alive theo màu. Phát event cho view và cho GameManager — không biết gì về Unity scene.',
+ m:['+ event VoxelDestroyed(int)','+ event AllCleared()','+ VoxelModel(LevelData)','+ Count · AliveCount : int','+ Cleared : bool','+ DestroyVoxel(index) : bool','+ GetCell / IsAlive / InBounds / GetIndexAt','+ CountAliveOfColor(colorIndex) : int']},
+
+/* ── Core / Level ── */
+{l:'Core',n:'ILevelSource',k:'iface',f:'Core/Level/ILevelSource.cs',m:['+ Count : int','+ Load(level) : LevelData']},
+{l:'Core',n:'LevelLibrary',k:'static',f:'Core/Level/LevelLibrary.cs',
+ note:'Facade: primary (Resource) → fallback (Procedural), swap được bằng Use().',
+ m:['+ static Use(primary, fallback)','+ static Count : int','+ static Load(level) : LevelData']},
+{l:'Core',n:'ResourceLevelSource',k:'plain',im:'ILevelSource',f:'Core/Level/ResourceLevelSource.cs',
+ note:'Đọc Resources/Levels/level_NNN.json (60 level sinh bởi Tools/gen_levels.py).',
+ m:['+ ResourceLevelSource(folder = "Levels")','+ Count : int','+ Load(level) : LevelData']},
+{l:'Core',n:'ProceduralLevelSource',k:'plain',im:'ILevelSource',f:'Core/Level/ProceduralLevelSource.cs',
+ note:'Fallback để game vẫn chạy khi không có content.',m:['+ Count : int = MaxValue','+ Load(level) : LevelData']},
+{l:'Core',n:'LevelData',k:'plain',f:'Core/Level/LevelData.cs',
+ note:'Schema JSON của một màn.',
+ m:['+ level · paletteIndex · gunSlots : int','+ voxels : VoxelDef[]','+ bank : int[]','+ bankColors : int[]','+ bankColumns : int','+ VoxelCount : int','+ TotalAmmo : int']},
+{l:'Core',n:'VoxelDef',k:'struct',f:'Core/Level/VoxelDef.cs',m:['+ x · y · z : int','+ c : int  (color slot)']},
+{l:'Core',n:'BankColorAssigner',k:'static',f:'Core/Level/BankColorAssigner.cs',
+ note:'Suy ra bankColors theo tham lam cho JSON cũ chưa có trường này.',
+ m:['+ static EnsureColors(LevelData)','+ static CountVoxelsPerColor(LevelData) : Dictionary<int,int>']},
+
+/* ── Core / Targeting ── */
+{l:'Core',n:'ITargetSelector',k:'iface',f:'Core/Targeting/ITargetSelector.cs',
+ note:'Chính sách reserve mục tiêu — không hai dart nào cùng bắn một voxel.',
+ m:['+ Reserve(colorIndex) : int','+ Release(index)','+ Clear()']},
+{l:'Core',n:'ExposedTargetSelector',k:'plain',im:'ITargetSelector',f:'Core/Targeting/ExposedTargetSelector.cs',
+ note:'Reservation + bốc ngẫu nhiên trong dải Y cao nhất (reservoir sampling), lọc qua IVoxelVisibility.',
+ m:['+ ExposedTargetSelector(grid, visibility, random = null)','+ Reserve(colorIndex) : int','+ Release(index)','+ Clear()','- IsEligible(index, colorIndex) : bool']},
+{l:'Core',n:'IVoxelVisibility',k:'iface',f:'Core/Targeting/IVoxelVisibility.cs',m:['+ IsVisible(index) : bool']},
+{l:'Core',n:'AlwaysVisible',k:'plain',im:'IVoxelVisibility',f:'Core/Targeting/AlwaysVisible.cs',
+ note:'Null-Object — dùng khi không có camera.',m:['+ static Instance','+ IsVisible(index) : bool = true']},
+
+/* ── Core / Scoring ── */
+{l:'Core',n:'IStarRule',k:'iface',f:'Core/Scoring/IStarRule.cs',m:['+ Evaluate(voxelCount, elapsedSeconds) : int']},
+{l:'Core',n:'TimeStarRule',k:'plain',im:'IStarRule',f:'Core/Scoring/TimeStarRule.cs',
+ m:['+ TimeStarRule(baseSeconds = 3, secondsPerVoxel = .045, perfectFraction = .6)','+ Evaluate(voxelCount, elapsedSeconds) : int']},
+
+/* ── Gameplay / Flow ── */
+{l:'Gameplay',n:'GameBootstrap',k:'mono',f:'Gameplay/Flow/GameBootstrap.cs',
+ note:'[DefaultExecutionOrder(-100)] — chạy trước mọi thứ: nạp 3 config vào locator, set targetFrameRate, camera clear color, post + SMAA, ambient trilight + key/fill light.',
+ m:['[SF] gameConfig · paletteConfig · visualLibrary','[SF] mainCamera : Camera','[SF] cameraData : UniversalAdditionalCameraData','- Awake() → ApplyConfigs / ApplyApplicationSettings / ApplyCameraSettings / ApplyLighting']},
+{l:'Gameplay',n:'GameManager',k:'mono',im:'IGameFlow, IShooterContext, IDartContext, IBoardContext',f:'Gameplay/Flow/GameManager.cs',
+ note:'Chỉ điều phối: level flow, sinh slot/dart, thắng/sao/save. Hai chính sách khó — reserve mục tiêu và targeting theo tầm nhìn camera — được uỷ cho ExposedTargetSelector + CameraVoxelVisibility.',
+ m:['[SF] sculpture · bank · input · cameraRig · ui','[SF] gunSlotPrefab · dartPrefab · gunSlotRoot · dartRoot','- _slots : List<GunSlot> · _model · _data · _targets · _starRule','+ State · Level · AliveVoxels · TotalVoxels · Slots · Sculpture','+ AcceptingInput : bool','+ UseStarRule(rule)','+ StartLevel(level) · RestartLevel() · NextLevel()','+ ShowMainMenu() · ShowLevelSelect()','+ RequestTarget(colorIndex) : int','+ CountAliveOfColor(colorIndex) : int','+ GetColor(colorIndex) : Color','+ SpawnDart(voxelIndex, origin, barrelDirection)','+ GetVoxelWorldPosition(voxelIndex) : Vector3','+ ResolveDartHit(voxelIndex, position)','+ FindFirstEmptySlot() : GunSlot','+ FindNearestEmptySlot(screenPos, maxPixels, camera) : GunSlot','+ DeployBlock(block, slot) : bool','- BuildSlots(count) · TeardownLevel() · OnAllCleared() · WinRoutine()']},
+{l:'Gameplay',n:'GameState',k:'struct',f:'Gameplay/Flow/GameState.cs',note:'enum.',m:['Menu','Playing','Won']},
+{l:'Gameplay',n:'IGameFlow',k:'iface',f:'Gameplay/Flow/IGameFlow.cs',
+ note:'Bề mặt mà UI nhìn thấy — screen không bao giờ gọi tên GameManager.',
+ m:['+ State : GameState','+ Level · AliveVoxels · TotalVoxels : int','+ StartLevel(level) · RestartLevel() · NextLevel()','+ ShowMainMenu() · ShowLevelSelect()']},
+{l:'Gameplay',n:'IShooterContext',k:'iface',f:'Gameplay/Flow/IShooterContext.cs',
+ note:'Bề mặt cho Gun / GunSlot.',
+ m:['+ RequestTarget(colorIndex) : int','+ CountAliveOfColor(colorIndex) : int','+ GetColor(colorIndex) : Color','+ SpawnDart(voxelIndex, origin, barrelDirection)']},
+{l:'Gameplay',n:'IDartContext',k:'iface',f:'Gameplay/Flow/IDartContext.cs',
+ m:['+ GetVoxelWorldPosition(voxelIndex) : Vector3','+ ResolveDartHit(voxelIndex, position)']},
+{l:'Gameplay',n:'IBoardContext',k:'iface',f:'Gameplay/Flow/IBoardContext.cs',
+ note:'Bề mặt cho input: hỏi slot, deploy block, lấy bàn xoay.',
+ m:['+ AcceptingInput : bool','+ Sculpture : ISpinnable','+ FindFirstEmptySlot() : GunSlot','+ FindNearestEmptySlot(screenPos, maxPixels, camera) : GunSlot','+ DeployBlock(block, slot) : bool']},
+
+/* ── Gameplay / Sculpture ── */
+{l:'Gameplay',n:'SculptureView',k:'mono',im:'ISculptureSpace, ISpinnable',f:'Gameplay/Sculpture/SculptureView.cs',
+ note:'Composition root của khối điêu khắc — chỉ nối dây 4 plain class rồi forward interface. Đăng ký VoxelDestroyed để chạy FX.',
+ m:['[SF] voxelPrefab : VoxelCube','- _field · _turntable · _effects · _fragments','- _model · _layout · _cellSize · _scale','+ Bounds : Bounds  (đã tính tilt)','+ Initialize(model, paletteIndex)','+ WorldToGrid(world) : Vector3','+ GetWorldPosition(voxelIndex) : Vector3','+ ApplyYaw(pixelsDeltaX) · EndSpin()','- OnVoxelDestroyed(index)']},
+{l:'Gameplay',n:'ISculptureSpace',k:'iface',f:'Gameplay/Sculpture/ISculptureSpace.cs',
+ m:['+ WorldToGrid(world) : Vector3','+ GetWorldPosition(voxelIndex) : Vector3']},
+{l:'Gameplay',n:'ISpinnable',k:'iface',f:'Gameplay/Sculpture/ISpinnable.cs',m:['+ ApplyYaw(pixelsDeltaX)','+ EndSpin()']},
+{l:'Gameplay',n:'SculptureLayout',k:'plain',f:'Gameplay/Sculpture/SculptureLayout.cs',
+ note:'Tính local position từng voxel + world bounds có tính tilt (bounds không tilt sẽ báo dư chiều cao ~1/cos(tilt)).',
+ m:['+ SculptureLayout(grid, config, cellSize, scale)','+ LocalPositions : Vector3[]','+ GridOrigin : Vector3','+ WorldBounds : Bounds','- static MeasureBounds(...)']},
+{l:'Gameplay',n:'VoxelCubeField',k:'plain',f:'Gameplay/Sculpture/VoxelCubeField.cs',
+ note:'Sở hữu mảng cube + gợn sóng punch lan sang hàng xóm.',
+ m:['+ VoxelCubeField(prefab, parent)','+ Count : int','+ Build(grid, layout, library, paletteIndex, style)','+ Clear()','+ DetachCube(index) : VoxelCube','+ LocalPosition(index) : Vector3','+ HasLocalPosition(index) : bool','+ PunchAround(index, cellSize, config)']},
+{l:'Gameplay',n:'VoxelCube',k:'mono',f:'Gameplay/Sculpture/VoxelCube.cs',
+ note:'Jitter màu/scale, punch, flash, explode. Physics được author sẵn ở trạng thái kinematic rồi bật lúc nổ (không AddComponent runtime).',
+ m:['[SF] meshRenderer · boxCollider · physicsBody','+ Color : Color','+ SharedMaterial : Material','+ Initialize(material, color, style)','+ Punch(settings)','+ Explode(direction, force, torque, life)','- PunchRoutine()  (mang luôn hit-flash)']},
+{l:'Gameplay',n:'VoxelStyle',k:'struct',f:'Gameplay/Sculpture/VoxelStyle.cs',
+ note:'Cube không tự đọc config — style được inject.',
+ m:['+ Size · HueJitter · ValueJitter · ScaleJitter : float','+ static From(config) : VoxelStyle']},
+{l:'Gameplay',n:'PunchSettings',k:'struct',f:'Gameplay/Sculpture/PunchSettings.cs',
+ m:['+ Amount · Duration · FlashTime · FlashIntensity','+ IsActive : bool','+ Flashes : bool']},
+{l:'Gameplay',n:'Turntable',k:'plain',im:'ISpinnable',f:'Gameplay/Sculpture/Turntable.cs',
+ note:'Tự xoay khi idle, xoay theo kéo tay. GetWorldPos phải là live vì dart bám voxel đang quay.',
+ m:['+ Turntable(target)','+ Configure(settings, restYaw)','+ ApplyYaw(pixelsDeltaX) · EndSpin()','+ Tick(deltaTime)','- ApplyRotation()']},
+{l:'Gameplay',n:'TurntableSettings',k:'struct',f:'Gameplay/Sculpture/TurntableSettings.cs',
+ m:['+ Tilt · DragSensitivity · AutoRotateDelay · AutoRotateSpeed','+ static From(config)']},
+{l:'Gameplay',n:'CameraVoxelVisibility',k:'plain',im:'IVoxelVisibility',f:'Gameplay/Sculpture/CameraVoxelVisibility.cs',
+ note:'Grid-march tia voxel → camera trong không gian local để súng chỉ bắn voxel người chơi nhìn thấy; voxel bị che chờ tới khi lộ ra / xoay tới.',
+ m:['+ CameraVoxelVisibility(grid, space, cameraGetter)','+ IsVisible(index) : bool']},
+
+/* ── Gameplay / Shooting ── */
+{l:'Gameplay',n:'GunSlot',k:'mono',f:'Gameplay/Shooting/GunSlot.cs',
+ note:'Ô đặt súng — khung 4 thanh (rim đặc sẽ che hết phần lõm ở góc camera 75°).',
+ m:['[SF] gunPrefab : Gun','[SF] padRenderers : MeshRenderer[]','+ IsEmpty : bool','+ Index : int','+ Initialize(context, index)','+ Deploy(ammo, colorIndex) : bool','+ ReleaseGun(gun)']},
+{l:'Gameplay',n:'Gun',k:'mono',f:'Gameplay/Shooting/Gun.cs',
+ note:'Tự bắn, khoá màu: chỉ xin/phá cube cùng màu, về hưu và trả slot khi màu đó hết cube dù còn đạn. Tint qua MaterialPropertyBlock, đã cap độ sáng bằng gunTintMaxValue.',
+ m:['[SF] bodyPivot · barrelTip : Transform','[SF] label : TMP_Text','[SF] bodyRenderer · partRenderers : MeshRenderer','- _context : IShooterContext · _slot · _recoil : RecoilSpring','+ Ammo : int','+ ColorIndex : int','+ Initialize(context, slot, ammo, colorIndex)','- Update() → Fire()','- ApplyTint(color)','- Retire()']},
+{l:'Gameplay',n:'RecoilSpring',k:'plain',f:'Gameplay/Shooting/RecoilSpring.cs',
+ note:'Squash giật xoay quanh đường tiếp xúc (pivot là Rig), nên nòng ép xuống sàn slot chứ không co về tâm.',
+ m:['+ RecoilSpring(target, squash)','+ Kick()','+ Tick(deltaTime)']},
+{l:'Gameplay',n:'Dart',k:'mono',f:'Gameplay/Shooting/Dart.cs',
+ note:'Mỗi frame lấy lại vị trí sống của voxel (bàn xoay quay). Bay cung bezier: rời theo trục nòng rồi bổ vào theo tia camera nên không xuyên cube khác.',
+ m:['[SF] trail : TrailRenderer','[SF] bulletRenderer : MeshRenderer','- _context : IDartContext · _arc : DartArc','+ Initialize(context, voxelIndex, startPosition, barrelDirection, target, color)','- Update() → Sample / Hit']},
+{l:'Gameplay',n:'DartArc',k:'struct',f:'Gameplay/Shooting/DartArc.cs',
+ note:'Toán cung bay thuần. KHÔNG đặt control point đầu ra sau nòng — dưới camera 75° trục −Z chiếu xuống dưới màn hình, đạn sẽ bắn ngược.',
+ m:['+ static Create(start, muzzleDirection, target, ...) : DartArc','+ Approach : Vector3','+ Length : float','+ Sample(t) : Vector3']},
+
+/* ── Gameplay / Bank ── */
+{l:'Gameplay',n:'BankArea',k:'mono',f:'Gameplay/Bank/BankArea.cs',
+ note:'Các cột đứng: hàng chờ nằm sát dưới hàng chơi được theo bankRowSpacing.',
+ m:['[SF] blockPrefab : BankBlock','+ Blocks : IReadOnlyList<BankBlock>','+ Remaining : int','+ Initialize(values, colors, paletteIndex, columns)','+ Consume(block)','- Spawn(...) · ClearBlocks() · Layout(snap)']},
+{l:'Gameplay',n:'BankBlock',k:'mono',f:'Gameplay/Bank/BankBlock.cs',
+ note:'Kéo thả được; chỉ Row 0 chơi được, hàng sau bị làm mờ và ẩn số. Raycast tìm chủ qua ColliderRegistry (không GetComponent).',
+ m:['[SF] cubeRenderer · label · boxCollider','- static Registry : ColliderRegistry<BankBlock>','+ Value · ColorIndex · Row : int','+ Home : Vector3','+ Consumed : bool','+ static FindByCollider(collider) : BankBlock','+ Initialize(value, colorIndex, material, tint)','+ SetHome(home, snap) · SetRow(row)','+ FollowTo(position) · ReturnHome() · Consume()']},
+
+/* ── Gameplay / Destruction ── */
+{l:'Gameplay',n:'DestructionEffects',k:'plain',f:'Gameplay/Destruction/DestructionEffects.cs',
+ note:'Bắn 4 lớp FX qua IFxService (null-object nếu thiếu).',
+ m:['+ DestructionEffects(fx)','+ Play(position, color, config)  → Flash · Burst · Shards · Puff']},
+{l:'Gameplay',n:'FragmentEmitter',k:'plain',f:'Gameplay/Destruction/FragmentEmitter.cs',
+ note:'Lấy mảnh vỡ từ pool: debrisMediumCount có collider, debrisSmallCount thì không.',
+ m:['+ FragmentEmitter(pool)','+ Emit(position, material, outDirection, config, worldSize)','- Spawn(...)']},
+{l:'Gameplay',n:'IDebrisPool',k:'iface',f:'Gameplay/Destruction/IDebrisPool.cs',m:['+ Spawn(prefab) : Debris','+ Release(fragment)','+ RecycleAll()']},
+{l:'Gameplay',n:'DebrisPool',k:'plain',im:'IDebrisPool',f:'Gameplay/Destruction/DebrisPool.cs',
+ note:'Singleton Shared, tái dùng theo kiểu cũ-nhất-trước, cap = debrisMaxActive (96). Trước khi có pool mỗi lần phá là ~8 Instantiate + 8 Destroy.',
+ m:['+ static readonly Shared : DebrisPool','+ Spawn(prefab) : Debris','+ Release(fragment)','+ RecycleAll()','- RecycleOldestAtCap() · DropDestroyedIdleEntries()']},
+{l:'Gameplay',n:'Debris',k:'mono',f:'Gameplay/Destruction/Debris.cs',
+ note:'Mảnh vỡ tự Bind vào pool và tự trả về; co nhỏ ở cuối vòng đời.',
+ m:['[SF] meshRenderer · boxCollider · physicsBody','+ SetPool(pool)','+ Place(position, rotation, scale)','+ Launch(material, velocity, angularVelocity, life, withCollider)','+ Recycle()']},
+
+/* ── Gameplay / Input ── */
+{l:'Gameplay',n:'BoardInput',k:'mono',f:'Gameplay/Input/BoardInput.cs',
+ note:'CHỈ là router (new Input System). Gesture nào TryBegin() nhận press trước thì thắng → thêm tương tác = thêm class gesture, không thêm if.',
+ m:['[SF] sceneCamera : Camera','- _board : IBoardContext · _gestures : IPointerGesture[] · _active','+ Initialize(board)','- Update() → BeginGesture / Drag / EndGesture','- IsOverUI(position) : bool · CancelActive()']},
+{l:'Gameplay',n:'IPointerGesture',k:'iface',f:'Gameplay/Input/IPointerGesture.cs',
+ m:['+ TryBegin(screenPosition) : bool','+ Drag(screenPosition)','+ End(screenPosition)','+ Cancel()']},
+{l:'Gameplay',n:'BlockDragGesture',k:'plain',im:'IPointerGesture',f:'Gameplay/Input/BlockDragGesture.cs',
+ note:'Kéo block Row 0 → thả vào slot gần nhất (≤130px); di chuyển <18px thì coi là tap → slot trống đầu tiên.',
+ m:['+ BlockDragGesture(board, cameraGetter)','+ TryBegin / Drag / End / Cancel']},
+{l:'Gameplay',n:'TurntableGesture',k:'plain',im:'IPointerGesture',f:'Gameplay/Input/TurntableGesture.cs',
+ m:['+ TurntableGesture(sculptureGetter)','+ TryBegin / Drag / End / Cancel  → ISpinnable.ApplyYaw']},
+
+/* ── Gameplay / View ── */
+{l:'Gameplay',n:'CameraRig',k:'mono',f:'Gameplay/View/CameraRig.cs',
+ note:'Handle tĩnh của scene (Main / Rig) nên không cần Camera.main hay serialized ref ở nơi khác. Áp framing do solver tính, và rung khi trúng.',
+ m:['[SF] sceneCamera : Camera','+ static Main : Camera','+ static Rig : CameraRig','+ FitTo(bounds)','+ Shake(amount)','- LateUpdate()  (giảm chấn rung)']},
+{l:'Gameplay',n:'CameraFramingSolver',k:'static',f:'Gameplay/View/CameraFramingSolver.cs',
+ note:'sculptureFillWidth mới là nút chỉnh kích thước trên màn hình, không phải sculptureScale (scale gần như tự triệt tiêu). Lấy max(distFill, distFit) nên không bao giờ cắt mất hàng bank.',
+ m:['+ static Solve(sculptureBounds, aspect, config) : CameraFraming']},
+{l:'Gameplay',n:'CameraFraming',k:'struct',f:'Gameplay/View/CameraFraming.cs',
+ m:['+ Position : Vector3','+ Rotation : Quaternion','+ Orthographic : bool','+ OrthographicSize · FieldOfView : float']},
+{l:'Gameplay',n:'Backdrop',k:'mono',f:'Gameplay/View/Backdrop.cs',
+ note:'Quad con của camera, khớp gradient đã bake vào frustum cho mọi tỉ lệ mobile (nền phẳng đo được std-dev 0.0015 → nay ~0.008).',
+ m:['- LateUpdate() → fit quad vào frustum']},
+{l:'Gameplay',n:'Billboard',k:'mono',f:'Gameplay/View/Billboard.cs',
+ note:'towardCamera kéo nhãn ra dọc tia nhìn — cách đúng để đặt số đạn, KHÔNG offset −Z (dưới pitch dốc sẽ tụt xuống dưới nòng).',
+ m:['+ towardCamera : float','- LateUpdate()']},
+
+/* ── Services ── */
+{l:'Services',n:'IAudioService',k:'iface',f:'Services/Audio/IAudioService.cs',
+ m:['+ PlayShoot(progress01)','+ PlayVoxelBreak() · PlayThunk() · PlayClick() · PlayWin()','+ StartMusic()','+ SetMuted(muted)']},
+{l:'Services',n:'AudioService',k:'static',f:'Services/Audio/AudioService.cs',
+ note:'Gọi audio bằng AudioService.Current.PlayX() — rơi về NullAudioService nên không cần guard != null.',
+ m:['+ static Current : IAudioService','+ static Register(service) · Unregister(service)']},
+{l:'Services',n:'AudioManager',k:'mono',im:'IAudioService',f:'Services/Audio/AudioManager.cs',
+ note:'Chỉ phát — tổng hợp clip nằm ở ProceduralClipFactory. Tự Register vào facade trong Awake.',
+ m:['[SF] sfxSource · musicSource : AudioSource','- _clips : GameClips','+ PlayShoot / PlayVoxelBreak / PlayThunk / PlayClick / PlayWin','+ StartMusic() · SetMuted(muted)']},
+{l:'Services',n:'NullAudioService',k:'plain',im:'IAudioService',f:'Services/Audio/NullAudioService.cs',m:['+ static Instance','(no-op toàn bộ)']},
+{l:'Services',n:'ProceduralClipFactory',k:'static',f:'Services/Audio/ProceduralClipFactory.cs',
+ note:'Sinh AudioClip bằng code — không dùng file âm thanh.',m:['+ static tạo clip shoot / break / thunk / click / win / music']},
+{l:'Services',n:'GameClips',k:'plain',f:'Services/Audio/GameClips.cs',m:['+ Shoot · Break · Thunk · Click · Win · Music : AudioClip']},
+{l:'Services',n:'IFxService',k:'iface',f:'Services/Fx/IFxService.cs',
+ m:['+ Burst(position, color, count)','+ Flash(position, color)','+ Puff(position, color, count)','+ Shards(position, color, count)']},
+{l:'Services',n:'FxService',k:'static',f:'Services/Fx/FxService.cs',
+ note:'Current set được — test/scene có thể thay bằng NullFxService.',m:['+ static Current : IFxService  { get; set; }']},
+{l:'Services',n:'ParticleFxService',k:'plain',im:'IFxService',f:'Services/Fx/ParticleFxService.cs',
+ note:'Instantiate 4 ParticleSystem prefab world-space từ VisualLibrary rồi Emit. Không có fallback procedural: thiếu prefab = không có FX.',
+ m:['+ ParticleFxService(libraryGetter)','+ Burst / Flash / Puff / Shards']},
+{l:'Services',n:'NullFxService',k:'plain',im:'IFxService',f:'Services/Fx/NullFxService.cs',m:['+ static Instance','(no-op toàn bộ)']},
+{l:'Services',n:'ISaveRepository',k:'iface',f:'Services/Save/ISaveRepository.cs',
+ m:['+ HighestUnlocked : int','+ Coins : int','+ Muted : bool','+ GetStars(level) : int','+ SetStars(level, stars)','+ ClearAll()']},
+{l:'Services',n:'SaveSystem',k:'static',f:'Services/Save/SaveSystem.cs',
+ note:'Facade tĩnh trên repository thay được.',
+ m:['+ static Use(repository)','+ static HighestUnlocked · Coins · Muted','+ static GetStars(level) · SetStars(level, stars)','+ static TotalStars : int','+ static ClearAll()']},
+{l:'Services',n:'PlayerPrefsSaveRepository',k:'plain',im:'ISaveRepository',f:'Services/Save/PlayerPrefsSaveRepository.cs',
+ note:'Prefix khoá: cubeblaster.',m:['+ HighestUnlocked · Coins · Muted','+ GetStars(level) · SetStars(level, stars) · ClearAll()']},
+
+/* ── UI ── */
+{l:'UI',n:'IUIHost',k:'iface',f:'UI/IUIHost.cs',
+ note:'Lệnh đọc như ý định (GoTo…/Start…), không đặt tên theo nút bấm.',
+ m:['+ Root : RectTransform','+ Game : IGameFlow','+ GoToLevelSelect() · GoToMainMenu() · GoToNextLevel()','+ StartLevel(level) · RestartLevel()','+ ToggleSettings()']},
+{l:'UI',n:'IUIScreen',k:'iface',f:'UI/IUIScreen.cs',
+ m:['+ Visible : bool','+ Build(parent)','+ Show() · Hide() · Refresh()']},
+{l:'UI',n:'UIController',k:'mono',im:'IUIHost',f:'UI/UIController.cs',
+ note:'Giữ screen dưới dạng IUIScreen và ẩn qua MỘT list — thêm screen mới không đụng nhánh HideAll nào.',
+ m:['[SF] root : RectTransform','- _exclusiveScreens : List<IUIScreen>','- _menu · _select · _hud · _win · _settings','+ Root · Game','+ Initialize(game)','+ ShowMainMenu() · ShowLevelSelect() · ShowHud(level)','+ ShowWin(level, stars, coins, hasNext) · ToggleSettings()','+ GoToLevelSelect() · StartLevel(level) · GoToMainMenu()','+ RestartLevel() · GoToNextLevel()','- BuildHidden(screens) · HideExclusive()']},
+{l:'UI',n:'UIScreen',k:'abstract',im:'IUIScreen',f:'UI/UIScreen.cs',
+ note:'Base plain class — phụ thuộc IUIHost, không bao giờ nhắc GameManager.',
+ m:['# UI : IUIHost','# Root : GameObject','+ Visible : bool','+ Show() · Hide()','+ abstract Build(parent)','+ virtual Refresh()','# MakeRoot(name, parent) : GameObject']},
+{l:'UI',n:'MainMenuScreen',k:'plain',im:'UIScreen',f:'UI/Screens/MainMenuScreen.cs',m:['+ Build(parent)','+ override Refresh()']},
+{l:'UI',n:'LevelSelectScreen',k:'plain',im:'UIScreen',f:'UI/Screens/LevelSelectScreen.cs',
+ note:'Lưới level + sao từ SaveSystem.',m:['+ Build(parent)','+ override Refresh()']},
+{l:'UI',n:'HudScreen',k:'plain',im:'UIScreen',f:'UI/Screens/HudScreen.cs',m:['+ Build(parent)','+ Set(level)','+ SetProgress(alive, total)']},
+{l:'UI',n:'WinScreen',k:'plain',im:'UIScreen',f:'UI/Screens/WinScreen.cs',m:['+ Build(parent)','+ Set(level, stars, coins, hasNext)']},
+{l:'UI',n:'SettingsScreen',k:'plain',im:'UIScreen',f:'UI/Screens/SettingsScreen.cs',m:['+ Build(parent)','+ override Refresh()']},
+{l:'UI',n:'UIFactory',k:'static',f:'UI/Toolkit/UIFactory.cs',
+ note:'uGUI code-first (legacy Text + LegacyRuntime.ttf, không TMP). Đây là ngoại lệ duy nhất được phép AddComponent runtime.',
+ m:['+ static Panel / Button / Label / Image …']},
+{l:'UI',n:'SpriteFactory',k:'static',f:'UI/Toolkit/SpriteFactory.cs',
+ note:'Sprite SDF: rounded-rect, circle, star — không cần asset ảnh.',m:['+ static RoundedRect / Circle / Star …']},
+{l:'UI',n:'UIPressEffect',k:'mono',im:'IPointerDownHandler, IPointerUpHandler, IPointerExitHandler',f:'UI/Effects/UIPressEffect.cs',
+ m:['+ OnPointerDown / OnPointerUp / OnPointerExit']},
+{l:'UI',n:'UIMotion',k:'mono',f:'UI/Effects/UIMotion.cs',m:['+ amp · speed · phase · rotAmp : float']},
+{l:'UI',n:'UIPopIn',k:'mono',f:'UI/Effects/UIPopIn.cs',m:['+ delay · duration · from : float','+ SetTarget(target)']},
+{l:'UI',n:'UIBob',k:'mono',f:'UI/Effects/UIBob.cs',note:'Nhịp idle.',m:['- Update()']},
+
+/* ── Shared ── */
+{l:'Shared',n:'ColorTools',k:'static',f:'Shared/ColorTools.cs',
+ note:'Chính sách màu: jitter lượng tử hoá theo block, mực chữ theo độ sáng nền (trắng-trên-trắng từng không đọc được), cap độ sáng giữ nguyên hue.',
+ m:['+ static InkDark · InkLight : Color','+ static Luminance(c) : float','+ static LabelInk(background) · LabelInkDim(background) : Color','+ static ClampBrightness(c, maxChannel) : Color','+ static Jitter(color, seed, hueAmount, valueAmount) : Color','+ static GetQuantizedOffset(seed) : float']},
+{l:'Shared',n:'RendererTinter',k:'plain',f:'Shared/RendererTinter.cs',
+ note:'Tint qua MaterialPropertyBlock nên .mat dùng chung không bị instance/sửa. LƯU Ý: MPB SetColor THAY THẾ _BaseColor — hạ base color trong .mat là vô nghĩa với vật thể đã tint.',
+ m:['+ Apply(renderer, color)','+ Apply(renderers[], color)','+ static WriteColor(block, color)']},
+{l:'Shared',n:'Ease',k:'static',f:'Shared/Ease.cs',
+ m:['+ static Pulse(t01) : float','+ static OutBack(t01, overshoot) : float','+ static SmoothStep01(t01) : float','+ static Damp(speed, deltaTime) : float']},
+{l:'Shared',n:'ColliderRegistry<T>',k:'plain',f:'Shared/ColliderRegistry.cs',
+ note:'Giải raycast hit → chủ sở hữu mà không GetComponent runtime.',
+ m:['+ Register(collider, owner)','+ Unregister(collider)','+ Find(collider) : T']},
+
+/* ── Editor ── */
+{l:'Editor',n:'VisualAssetBaker',k:'static',f:'Editor/VisualAssetBaker.cs',
+ note:'Tools ▸ Cube Blaster ▸ Bake Visual Assets. Sinh mesh RoundedCube/GunBody/GunPuck, texture EdgeSheen, toàn bộ .mat TCP2, 4 prefab FX, prefab Debris, cây visual + serialized ref của prefab gameplay, PostFX profile, và nối dây VisualLibrary.asset. RoundedCube được bake lại MỌI lần (giữ nguyên GUID).',
+ m:['+ [MenuItem] Bake Visual Assets','+ [MenuItem] Force Rebake All','+ [MenuItem] Sync SSAO From Config','- SetRef("serializedFieldName", …)  ← tên field là load-bearing']},
+];
+
+/* ─────────────────────────── CATALOG RENDER ─────────────────────────── */
+const KIND={mono:'MonoBehaviour',iface:'interface',plain:'class',static:'static class',so:'ScriptableObject',struct:'struct / enum',abstract:'abstract class'};
+const LAYERS=['Config','Core','Gameplay','Services','UI','Shared','Editor'];
+const host=document.getElementById('cards');
+
+LAYERS.forEach(L=>{
+  const list=C.filter(c=>c.l===L);if(!list.length)return;
+  const h=document.createElement('h3');
+  h.style.cssText='margin:26px 0 10px;font-size:15px;color:var(--acc);letter-spacing:.04em;text-transform:uppercase';
+  h.textContent=L+' — '+list.length+' type';
+  h.dataset.layer=L;host.appendChild(h);
+  const g=document.createElement('div');g.className='grid';g.dataset.layer=L;
+  list.forEach(c=>{
+    const d=document.createElement('div');
+    d.className='card k-'+c.k;d.dataset.layer=L;
+    d.dataset.q=(c.n+' '+(c.im||'')+' '+(c.note||'')+' '+(c.m||[]).join(' ')+' '+c.f).toLowerCase();
+    let html='<div class="hd"><div class="st">'+KIND[c.k]+'</div><div class="tt">'+esc(c.n)+'</div>';
+    if(c.im)html+='<div class="im">: <b>'+esc(c.im)+'</b></div>';
+    html+='</div>';
+    if(c.note)html+='<div class="bd"><div class="note">'+esc(c.note)+'</div></div>';
+    if(c.m&&c.m.length)html+='<div class="bd"><ul>'+c.m.map(x=>'<li>'+fmt(x)+'</li>').join('')+'</ul></div>';
+    html+='<div class="pth">Scripts/'+esc(c.f)+'</div>';
+    d.innerHTML=html;g.appendChild(d);
+  });
+  host.appendChild(g);
+});
+document.getElementById('count').textContent='('+C.length+' type)';
+
+function esc(s){return String(s).replace(/[&<>]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[m]));}
+function fmt(s){
+  const e=esc(s);
+  const i=e.search(/[ (:]/);
+  if(e.startsWith('+ ')||e.startsWith('- ')||e.startsWith('# ')){
+    const rest=e.slice(2), j=rest.search(/[ (:]/);
+    return e.slice(0,2)+'<b>'+(j<0?rest:rest.slice(0,j))+'</b>'+(j<0?'':rest.slice(j));
+  }
+  return i<0?'<b>'+e+'</b>':'<b>'+e.slice(0,i)+'</b>'+e.slice(i);
+}
+
+/* ─────────────────────────── FILTER ─────────────────────────── */
+const q=document.getElementById('q'), empty=document.getElementById('empty');
+const on=new Set(LAYERS);
+function apply(){
+  const t=q.value.trim().toLowerCase();
+  let shown=0;
+  document.querySelectorAll('.card').forEach(c=>{
+    const ok=on.has(c.dataset.layer)&&(!t||c.dataset.q.includes(t));
+    c.classList.toggle('hide',!ok);if(ok)shown++;
+  });
+  LAYERS.forEach(L=>{
+    const any=[...document.querySelectorAll('.card[data-layer="'+L+'"]')].some(c=>!c.classList.contains('hide'));
+    document.querySelectorAll('[data-layer="'+L+'"]').forEach(n=>{
+      if(n.tagName==='H3'||n.classList.contains('grid'))n.style.display=any?'':'none';
+    });
+  });
+  empty.style.display=shown?'none':'block';
+  gNode.querySelectorAll('.node').forEach(n=>
+    n.classList.toggle('hit',!!t&&n.dataset.id.toLowerCase().includes(t)));
+}
+q.addEventListener('input',apply);
+document.querySelectorAll('.chip[data-layer]').forEach(b=>{
+  b.addEventListener('click',()=>{
+    const L=b.dataset.layer,p=b.getAttribute('aria-pressed')==='true';
+    b.setAttribute('aria-pressed',String(!p));
+    if(p)on.delete(L);else on.add(L);apply();
+  });
+});
+document.getElementById('reset').addEventListener('click',()=>{
+  q.value='';on.clear();LAYERS.forEach(L=>on.add(L));
+  document.querySelectorAll('.chip[data-layer]').forEach(b=>b.setAttribute('aria-pressed','true'));
+  focus(null);apply();
+});
+apply();
+</script>
+</body>
+</html>
