@@ -23,7 +23,7 @@ namespace CubeBlaster
             _board = board;
             _gestures = new IPointerGesture[]
             {
-                new BlockDragGesture(board, () => sceneCamera),
+                new BlockTapGesture(board, () => sceneCamera),
                 new TurntableGesture(() => board.Sculpture)
             };
         }

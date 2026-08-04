@@ -31,8 +31,12 @@ namespace CubeBlaster
             var settings = UIFactory.CandyButton("Settings", t, "OPTIONS", pal.btnSlate, () => UI.ToggleSettings(), 36);
             UIFactory.Rect(settings.gameObject, new Vector2(0, 1), new Vector2(0, 1), new Vector2(40, -170), new Vector2(300, -70));
 
+            // The second row is sized to land a hair wider than the first, so the block reads as a
+            // logo rather than two stacked words. It is per-word: CANNON is one tile shorter than
+            // the BLASTER it replaced, so the tile grew to hold the same silhouette (6 x 141 + 128
+            // = 833 of the 1080-wide canvas, clear of the margins).
             BuildTitleRow(t, "CUBE", 95f, 150f, 164f, deco);
-            BuildTitleRow(t, "BLASTER", -85f, 116f, 128f, deco);
+            BuildTitleRow(t, "CANNON", -85f, 128f, 141f, deco);
 
             var sub = UIFactory.Label("Sub", t, "tap PLAY to demolish", 40, Color.white);
             UIFactory.Rect(sub.gameObject, new Vector2(0, TitleAnchorY), new Vector2(1, TitleAnchorY),

@@ -65,9 +65,12 @@ namespace CubeBlaster
             Layout(snap: true);
         }
 
-        public void Consume(BankBlock block)
+        /// Takes a played block out of the queue WITHOUT destroying it: it is still flying to its
+        /// slot, and the lane behind it closes up now rather than when it lands, so the queue
+        /// answers the tap on the same frame. Whoever detached it owns destroying it.
+        public void Detach(BankBlock block)
         {
-            _blocks.Remove(block);
+            if (!_blocks.Remove(block)) return;
 
             int lane = FindLaneOf(block);
             if (lane >= 0)
@@ -76,7 +79,7 @@ namespace CubeBlaster
                 FillLane(lane);
             }
 
-            block.Consume();
+            block.Detach();
             Layout(snap: false);
         }
 

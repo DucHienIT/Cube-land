@@ -13,6 +13,10 @@ namespace CubeBlaster.EditorTools
         const string ReleaseDirectory = OutputRoot + "/Release";
         const string DevelopmentDirectory = OutputRoot + "/Development";
         const string FallbackScenePath = "Assets/_Project/Scenes/Game.unity";
+        const string PortraitTemplate = "PROJECT:CubeBlasterPortrait";
+        const string PortraitTemplatePath = "Assets/WebGLTemplates/CubeBlasterPortrait/index.html";
+        const int PortraitWidth = 1080;
+        const int PortraitHeight = 1920;
 
         [MenuItem("Tools/Cube Blaster/Build WebGL (Release)")]
         public static void BuildRelease()
@@ -30,6 +34,42 @@ namespace CubeBlaster.EditorTools
         public static void BuildAndRunDevelopment()
         {
             Build(DevelopmentDirectory, BuildOptions.Development | BuildOptions.AutoRunPlayer, WebGLCompressionFormat.Disabled, decompressionFallback: false);
+        }
+
+        [MenuItem("Tools/Cube Blaster/Apply Portrait Presentation")]
+        public static void ApplyPortraitPresentationMenu()
+        {
+            ApplyPortraitPresentation();
+            AssetDatabase.SaveAssets();
+            Debug.Log($"[WebGLBuilder] Portrait presentation applied: WebGL template {PortraitTemplate}, " +
+                      $"canvas {PortraitWidth}x{PortraitHeight}, mobile orientation Portrait.");
+        }
+
+        /// The game is portrait-only, and that takes agreement from three settings that live in
+        /// three different places — which is why it is one action rather than three checkboxes,
+        /// and why every build re-applies it:
+        ///   - the WEB CANVAS aspect, which the template reads from defaultWebScreenWidth/Height
+        ///     to size the element Unity renders into (the browser window is not portrait, and
+        ///     Unity takes its render target from the canvas element, not from the window);
+        ///   - the TEMPLATE itself, since the stock one stretches the canvas to the window;
+        ///   - the MOBILE orientation, for a native build of the same scene.
+        /// The in-game pillarbox (GameConfig.portraitLock) covers hosts that ignore all three.
+        static void ApplyPortraitPresentation()
+        {
+            if (File.Exists(PortraitTemplatePath))
+                PlayerSettings.WebGL.template = PortraitTemplate;
+            else
+                Debug.LogWarning($"[WebGLBuilder] {PortraitTemplatePath} is missing — the build will " +
+                                 "use the currently selected template and will NOT be locked to portrait.");
+
+            PlayerSettings.defaultWebScreenWidth = PortraitWidth;
+            PlayerSettings.defaultWebScreenHeight = PortraitHeight;
+
+            PlayerSettings.defaultInterfaceOrientation = UIOrientation.Portrait;
+            PlayerSettings.allowedAutorotateToPortrait = true;
+            PlayerSettings.allowedAutorotateToPortraitUpsideDown = false;
+            PlayerSettings.allowedAutorotateToLandscapeLeft = false;
+            PlayerSettings.allowedAutorotateToLandscapeRight = false;
         }
 
         [MenuItem("Tools/Cube Blaster/Open WebGL Build Folder")]
@@ -70,6 +110,7 @@ namespace CubeBlaster.EditorTools
             PlayerSettings.WebGL.compressionFormat = compression;
             PlayerSettings.WebGL.decompressionFallback = decompressionFallback;
             PlayerSettings.WebGL.dataCaching = true;
+            ApplyPortraitPresentation();
 
             Directory.CreateDirectory(outputDirectory);
 

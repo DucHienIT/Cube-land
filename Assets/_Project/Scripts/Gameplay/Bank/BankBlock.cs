@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using UnityEngine;
 using UnityEngine.Serialization;
@@ -10,11 +11,10 @@ namespace CubeBlaster
         static readonly Color QueuedTint = new Color(0.17f, 0.22f, 0.35f);
 
         const float QueuedDim = 0.42f;
-        const float ReturnSpeed = 6f;
         const float SettleSpeed = 8f;
         const float SettleThresholdSqr = 0.0001f;
-        const float PickupPunchAmount = 0.12f;
-        const float PickupPunchTime = 0.13f;
+        const float TapPunchAmount = 0.12f;
+        const float TapPunchTime = 0.13f;
 
         [Header("Prefab-authored refs")]
         [SerializeField] MeshRenderer cubeRenderer;
@@ -28,17 +28,20 @@ namespace CubeBlaster
         readonly RendererTinter _tinter = new RendererTinter();
 
         Color _tint;
-        float _returnProgress = -1f;
-        Vector3 _returnFrom;
         Vector3 _baseScale;
         Coroutine _punch;
-        bool _picked;
+
+        BlockHop _hop;
+        float _hopElapsed;
+        float _hopDuration = -1f;
+        Action _onLanded;
 
         public int Value { get; private set; }
         public int ColorIndex { get; private set; }
         public Vector3 Home { get; private set; }
         public bool Consumed { get; private set; }
         public int Row { get; private set; }
+        public bool Flying => _hopDuration > 0f;
 
         public static BankBlock FindByCollider(Collider collider) => Registry.Find(collider);
 
@@ -62,7 +65,7 @@ namespace CubeBlaster
             if (snap) transform.position = home;
         }
 
-        /// The black outline is the ONLY hard signal for "this block can be dragged". The dim on
+        /// The black outline is the ONLY hard signal for "this block can be played". The dim on
         /// the queued rows says "not yet" but says nothing about which row is the live one — on a
         /// dark palette two dimmed rows read much alike — and the outline is what the reference
         /// genre uses for exactly this. It is an inverted hull rather than a screen-space edge
@@ -88,24 +91,35 @@ namespace CubeBlaster
             _punch = StartCoroutine(PunchRoutine(amount, duration));
         }
 
-        public void FollowTo(Vector3 worldPosition)
+        /// Taken out of the bank queue but NOT destroyed: the lane behind it closes up straight
+        /// away while this block is still in the air, which is what makes a tap feel immediate.
+        /// It stops being a valid tap target the moment it detaches — the collider goes with it,
+        /// so a second tap in the same frame cannot pick a block that is already spoken for.
+        public void Detach()
         {
-            if (_returnProgress >= 0f || !_picked)
-            {
-                _picked = true;
-                PunchScale(PickupPunchAmount, PickupPunchTime);
-            }
-            _returnProgress = -1f;
-            SetRow(0);
-            transform.position = worldPosition;
+            Consumed = true;
+            if (boxCollider != null) boxCollider.enabled = false;
+            if (outlineRenderer != null) outlineRenderer.enabled = false;
         }
 
-        public void ReturnHome()
+        /// Flies into `target` and runs `onLanded` on arrival. The caller is responsible for
+        /// whatever the landing means — this class knows nothing about slots or guns.
+        public void HopTo(Vector3 target, Camera camera, float height, float duration, Action onLanded)
         {
-            _picked = false;
-            _returnFrom = transform.position;
-            _returnProgress = 0f;
+            if (_baseScale == Vector3.zero) _baseScale = transform.localScale;
+            if (_punch != null) { StopCoroutine(_punch); _punch = null; }
+            transform.localScale = _baseScale;
+
+            _hop = new BlockHop(transform.position, target, camera, height);
+            _hopElapsed = 0f;
+            _hopDuration = Mathf.Max(0.05f, duration);
+            _onLanded = onLanded;
+            // No punch here: the takeoff stretch is part of BlockHop.SampleScale, which owns the
+            // scale for the whole flight.
         }
+
+        /// Feedback for a tap that could not be played (every slot busy, colour already cleared).
+        public void RejectTap() => PunchScale(TapPunchAmount, TapPunchTime);
 
         public void Consume()
         {
@@ -115,15 +129,23 @@ namespace CubeBlaster
 
         void Update()
         {
-            if (_returnProgress >= 0f) TickReturn();
+            if (Flying) TickHop();
             else Settle();
         }
 
-        void TickReturn()
+        void TickHop()
         {
-            _returnProgress += Time.deltaTime * ReturnSpeed;
-            transform.position = Vector3.Lerp(_returnFrom, Home, Ease.SmoothStep01(_returnProgress));
-            if (_returnProgress >= 1f) _returnProgress = -1f;
+            _hopElapsed += Time.deltaTime;
+            float t = _hopElapsed / _hopDuration;
+
+            transform.position = _hop.Sample(t);
+            transform.localScale = _baseScale * BlockHop.SampleScale(t);
+            if (t < 1f) return;
+
+            _hopDuration = -1f;
+            var landed = _onLanded;
+            _onLanded = null;
+            landed?.Invoke();
         }
 
         void Settle()
@@ -140,6 +162,9 @@ namespace CubeBlaster
             while (elapsed < duration)
             {
                 elapsed += Time.deltaTime;
+                // The hop owns the scale while it is running — a punch that outlives the takeoff
+                // would fight the landing shrink and pop the block back to full size.
+                if (Flying) yield break;
                 transform.localScale = _baseScale * (1f + amount * Ease.Pulse(elapsed / duration));
                 yield return null;
             }

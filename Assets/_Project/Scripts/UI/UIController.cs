@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace CubeBlaster
 {
@@ -7,10 +8,12 @@ namespace CubeBlaster
     {
         [Header("Scene-authored refs")]
         [SerializeField] RectTransform root;
+        [SerializeField] CanvasScaler canvasScaler;
 
         readonly List<IUIScreen> _exclusiveScreens = new List<IUIScreen>();
         readonly List<IUIScreen> _allScreens = new List<IUIScreen>();
 
+        PortraitCanvasFrame _frame;
         bool _landscape;
 
         IGameFlow _game;
@@ -20,12 +23,18 @@ namespace CubeBlaster
         WinScreen _win;
         SettingsScreen _settings;
 
-        public RectTransform Root => root;
+        /// The portrait frame, not the canvas — every screen is built inside the rectangle the
+        /// game actually renders into. On an unlocked (or already portrait) window the two are
+        /// the same rectangle.
+        public RectTransform Root => _frame != null ? _frame.Rect : root;
         public IGameFlow Game => _game;
 
         public void Initialize(IGameFlow game)
         {
             _game = game;
+
+            _frame = new PortraitCanvasFrame(root, canvasScaler);
+            _frame.Sync();
 
             _menu = new MainMenuScreen(this);
             _select = new LevelSelectScreen(this);
@@ -45,7 +54,7 @@ namespace CubeBlaster
             _allScreens.Clear();
             foreach (var screen in screens)
             {
-                screen.Build(root);
+                screen.Build(Root);
                 screen.Hide();
                 _allScreens.Add(screen);
             }
@@ -108,6 +117,7 @@ namespace CubeBlaster
 
         void Update()
         {
+            if (_frame != null) _frame.Sync();
             SyncOrientation();
             if (_game == null || _game.State != GameState.Playing || _hud == null) return;
             _hud.SetProgress(_game.AliveVoxels, _game.TotalVoxels);

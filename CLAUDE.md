@@ -12,6 +12,16 @@ procedural at runtime.
 
 ## Cube Blaster (the game)
 
+**The shipping name is "Cube Cannon"** (`PlayerSettings.productName`, 2026-08-03) — it is what the
+browser tab, the WebGL loading screen, the player window title and the main-menu logo say. The
+**code name stays `CubeBlaster`**: the namespace, the `Tools ▸ Cube Blaster` menu paths, the
+`cubeblaster.` PlayerPrefs prefix and this document are all unchanged, because renaming them buys
+nothing and the prefs prefix would drop every player's progress. Product name is the only knob;
+change it in Player Settings, not in code. Note the WebGL save path IS derived from
+company + product name, so renaming again orphans the saves of an already-deployed build.
+The main-menu logo is built letter-by-letter in `MainMenuScreen.BuildTitleRow` and its tile/spacing
+is tuned PER WORD — a new name needs those two numbers re-fitted, not just the string swapped.
+
 A casual "ammo-shooter demolition" clone: numbered guns auto-fire darts at a procedural voxel
 sculpture; the number on a gun is its ammo; you drag numbered blocks from the bottom bank into
 empty gun slots to deploy shooters; demolish the whole sculpture to win. **A level is a SOLID
@@ -60,7 +70,7 @@ Scripts/
 │   ├── Flow/               GameBootstrap, GameManager, GameState, GameplayContracts
 │   ├── Sculpture/          SculptureView, SculptureLayout, VoxelCubeField, VoxelGroupTable, VoxelPopPool, VoxelStyle, Turntable, CameraVoxelVisibility
 │   ├── Shooting/           Gun, GunSlot, RecoilSpring, DartField, DartArc
-│   ├── Bank/               BankArea, BankBlock
+│   ├── Bank/               BankArea, BankBlock, BlockHop
 │   ├── Destruction/        Shockwave (the one pooled FX object a destroy spawns)
 │   ├── Input/              BoardInput + the IPointerGesture strategies
 │   └── View/               CameraRig, CameraFraming, SculptureFrame, Backdrop, Billboard
@@ -171,8 +181,9 @@ orchestrator owes each feature.
   raycast hits resolve through the generic `ColliderRegistry<T>`),
   `BankArea` (reference-style vertical stacks: queued rows sit flush below the playable row via
   `bankRowSpacing`), `BoardInput` (new Input System; it is only a *router* — the two behaviours are
-  `IPointerGesture` strategies, `BlockDragGesture` (drag a row-0 block = deploy, tap = first empty
-  slot) and `TurntableGesture` (drag on the structure = spin it). First gesture whose `TryBegin`
+  `IPointerGesture` strategies, `BlockTapGesture` (tap a row-0 block = hop it into the first empty
+  slot; there is no drag-to-deploy any more) and `TurntableGesture` (drag on the structure = spin
+  it). First gesture whose `TryBegin`
   accepts the press wins, so a new interaction means a new gesture class, not an `if` in
   `BoardInput`), `CameraRig` (applies the framing solved by the pure `CameraFramingSolver`;
   steep near-top-down board view — `cameraOrthographic` off,
@@ -984,6 +995,50 @@ decides which orientation is in play** (`aspect >= 1.2`) and both the UI and the
   `WinScreen`'s card went 960 → 760 tall because its ribbon hangs 120 above it and was clipped off
   the top of a wide screen; `LevelSelectScreen` uses 7 grid columns instead of 4.
 
+**Portrait pass (2026-08-03) — the game is portrait-only and PILLARBOXES anything wider.** User:
+*"sửa lại build editor và update code, tôi muốn game màn hình dọc thay vì ngang như hiện tại."* This
+reverses the premise of the Landscape pass above, which took the wide window as a given and built a
+second layout for it. The wide window is now simply not rendered into. **The landscape layouts are
+NOT deleted** — they are what `portraitLock = false` gets you back, and every knob (`*Landscape`,
+`ApplyLayout(bool)`, `HudScreen.LayoutLandscape`) is still live behind that flag.
+- **`ScreenLayout` is still the single orientation decision, and it now also owns the lock.**
+  `Lock(aspect)` pins the game to `GameConfig.portraitAspect` (0.5625 = 9:16 = the canvas reference
+  resolution = the WebGL canvas the builder writes — **keep all three in step**), `Viewport` is the
+  centred normalized slice, `Aspect` reports the slice rather than the window. `GameBootstrap`
+  applies it at execution order −100, so the camera and the UI are portrait on frame one.
+- **A window TALLER than the lock is left alone on purpose.** Extra height is the one thing a
+  portrait layout absorbs for free; letterboxing a 9:20 phone would just throw screen away. Only the
+  wide case is boxed, so on a real portrait device the lock is a no-op and nothing was re-tuned.
+- **Three things have to agree for "portrait" to be true, and they live in three places.** This is
+  why `Tools ▸ Cube Blaster ▸ Apply Portrait Presentation` exists and why every WebGL build
+  re-applies it (same "the tool owns these settings" rule as the compression fields):
+  1. **The WebGL page.** `Assets/WebGLTemplates/CubeBlasterPortrait` sizes the canvas ELEMENT to
+     `PlayerSettings.defaultWebScreenWidth/Height` (1080x1920) and centres it — Unity takes its
+     render target from the canvas element, not from the window, so this is the only place a
+     browser presentation can be decided. The page around it is the letterbox.
+  2. **`PlayerSettings.defaultInterfaceOrientation`** = Portrait with landscape autorotate off, for
+     a native build of the same scene.
+  3. **The in-game pillarbox**, which covers every host that ignores the first two — the editor
+     Game view, an embedded iframe, a desktop browser served the stock template.
+- **The camera half is trivial; the UI half is not.** `CameraRig.ApplyViewport` sets `camera.rect`
+  and everything downstream follows for free — `camera.aspect` becomes 0.5625, so
+  `CameraFramingSolver`, `ScreenPointToRay` and `Backdrop`'s frustum fit all pick the portrait shape
+  up with no changes (verified: raycasting a bank block's own `WorldToScreenPoint` resolves back to
+  that block, 4/4, through the rect). But a **Screen Space - Overlay canvas always spans the whole
+  window** and its CanvasScaler derives the scale factor from `Screen.width/height`, which knows
+  nothing about the bars: on a 1920x1080 window it would scale the UI as if it had 1920 units of
+  width and then draw it into a 607-pixel column. `PortraitCanvasFrame` fixes both — a `Frame`
+  child sized to the viewport (screens fill their parent, so no screen knows it exists) plus the
+  scale factor recomputed from the VIEWPORT using **the scaler's own authored formula**, pushed as
+  ConstantPixelSize. Reproducing the formula rather than picking a simpler rule is the point:
+  measured on a true 1080x1920 window the factor is 1.0, exactly what the authored
+  ScaleWithScreenSize produced, and the frame fills the screen — the lock is a provable no-op on the
+  shape the UI was tuned for.
+- `UIController.Root` returns the frame, not the canvas, so `IUIHost` consumers were untouched.
+  `canvasScaler` is a new serialized ref on `UIController` (wired by the baker's scene pass).
+- Measured in Play mode at 861x480 and 1920x1080: `camRect` 0.34/0.32/1.0, `camAspect` 0.5625, all
+  HUD/bank/menu content inside the column, sculpture framed by the portrait solver.
+
 ### Prefabs (`Assets/_Project/Prefabs/`)
 `Gun`, `GunSlot` (references `Gun`), `BankBlock`, plus `Fx/Shockwave.prefab`. **There is neither a
 voxel nor a dart prefab** — the sculpture is drawn from `VisualLibrary.voxelMesh` + the baked voxel
@@ -1095,6 +1150,41 @@ still builds uGUI with AddComponent by design — converting it means prefab-izi
   `bankVisibleRows` (3) × `bankColumns` (5) = 15 blocks and deactivates the rest,
   parking them exactly one row behind the window so they slide forward as the queue advances
   instead of popping in. `bankVisibleRows` existed in the config but was unused until this pass.
+- **A block is TAPPED into a slot, not dragged — and it hops there** (2026-08-03; user: *"bỏ thao
+  tác drag để kéo các bank lên slot đi, mà chỉ giữ lại click... cần thêm animation"*).
+  `BlockDragGesture` is deleted and replaced by `BlockTapGesture`; `IBoardContext` lost
+  `FindNearestEmptySlot` (drag was its only caller). Dragging let the player choose WHICH slot,
+  which the tap path never did and which is worth nothing: the slots are interchangeable — same
+  gun, same fire rate, and the block carries its own colour — so it was a longer way to say what a
+  tap already said.
+  - **A tap is resolved on RELEASE and only if the pointer stayed within `TapMovePixels` (18).** A
+    press that turns into a drag is discarded rather than deployed. It is deliberately NOT
+    forwarded to the turntable: the bank sits well below the sculpture, so a spin that starts on a
+    block is a misgrab, and swallowing it beats spinning the board by accident.
+  - **The tap decides everything gameplay-side immediately; only the GUN waits for the landing.**
+    `DeployBlock` validates, calls `GunSlot.HoldForIncoming()` (so `IsEmpty` is false and a second
+    tap cannot claim the same slot), and `BankArea.Detach`es the block — which takes it out of the
+    queue WITHOUT destroying it, so the lane behind it closes up on the same frame while the block
+    is still in the air. `slot.Deploy` + `block.Consume` run when it lands.
+    `GunSlot.Deploy` therefore tests `_gun`, NOT `IsEmpty` — the slot it lands in is exactly the
+    one holding for it, so an `IsEmpty` test there would reject every deploy.
+  - The arc is the pure `BlockHop` struct (same split as `DartArc`): eased along the ground, a
+    clean parabola in the air — easing both makes the block hang at the apex and read as floating
+    up rather than being thrown. **The lift is along the CAMERA's up axis, leaned 55% toward the
+    camera**, not world +Y, which the 75° pitch flattens to almost nothing on screen; the lean is
+    what keeps the block in front of the sculpture instead of passing behind it. Scale stretches
+    ~20% on takeoff and shrinks to zero over the last 26%, so the gun appears on the frame the
+    block vanishes and the two read as one object arriving. Knobs: `blockHopTime` (0.26s) and
+    `blockHopHeight` (1.15).
+  - **`blockHopTime` is dead time on the deploy cadence** — a slot frees roughly every 1.8s, and
+    past ~0.4s the hop starts reading as input lag rather than as feedback.
+  - **The landing can outlive the play it belongs to.** `TeardownLevel` destroys the slots but
+    leaves the board's blocks on screen behind the menu, so tapping and immediately hitting
+    Menu/Level Select landed into a destroyed slot — a real `MissingReferenceException`, hit
+    during verification. The callback now guards on `slot != null && _state == Playing`; the block
+    still consumes itself either way, so nothing is left flying.
+  - A tap that cannot be played (every slot busy, colour already cleared) answers with
+    `BankBlock.RejectTap()` — silence reads as a dropped input.
 - **The bank has ONE LANE PER SHOOTER SLOT** (2026-08-02; user: *"số lượng slot bao nhiêu thì số
   lượng hàng dọc bấy nhiêu"*). `GameConfig.GetBankColumns()` returns `gunSlotCount` and takes no
   arguments: the level asset's own `bankColumns` and the old `bankColumnsLandscape` (8) are both
@@ -1132,7 +1222,7 @@ still builds uGUI with AddComponent by design — converting it means prefab-izi
   queue behind block 0. A newly dequeued block is snapped to the park position one row behind the
   window before `Layout` gives it its real home, so it slides in rather than popping.
   **`Blocks`/`Remaining` are unchanged** — only the layout/queue policy moved — and `Row == 0` is
-  still the only playability test (`BlockDragGesture`). Verified in Play mode: taking the middle
+  still the only playability test (`BlockTapGesture`). Verified in Play mode: taking the middle
   block of the front row moved only the x=0 column (row1→row0, row2→row1, a new block in at row 2)
   with all four other columns byte-identical, and level 20 still auto-plays to
   `state=Won, bankLeft=0, alive=0` — the exact-ammo invariant survives the new deal order.
@@ -1199,7 +1289,11 @@ via `SerializedObject`. If rebuilding, compile scripts first, then create prefab
   server config; Development = uncompressed + development player for fast iteration, and
   `Build And Run WebGL (Development)` serves it on Unity's local HTTP server. The tool writes
   `PlayerSettings.WebGL` compression/fallback on every run, so those two settings are owned by the
-  tool — hand edits to them in Player Settings will be overwritten by the next build.
+  tool — hand edits to them in Player Settings will be overwritten by the next build. It also
+  re-applies the portrait presentation (WebGL template `CubeBlasterPortrait`, web canvas 1080x1920,
+  mobile orientation Portrait) on every build; `Tools ▸ Cube Blaster ▸ Apply Portrait Presentation`
+  does just that part. Those settings are owned by the tool for the same reason — see the Portrait
+  pass.
 - **No build/lint/test CLI is set up.** Building and playmode happen inside the Unity Editor. The Test Framework (`com.unity.test-framework`) is installed but there are no test assemblies yet.
 - To run tests headlessly once test asmdefs exist:
   ```bash

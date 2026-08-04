@@ -198,9 +198,31 @@ namespace CubeBlaster
                  "measured under a pixel on a phone-sized frame. Requires a re-bake: the shell's " +
                  "scale is baked into BankBlock.prefab.")]
         [Range(0.01f, 0.2f)] public float bankOutlineWidth = 0.16f;
+        [Tooltip("Seconds a tapped block spends flying into its slot. The gun only appears when " +
+                 "it lands, so this is dead time on the player's deploy cadence — a slot frees " +
+                 "every ~1.8s, so anything past ~0.4s starts to be felt as input lag rather than " +
+                 "as feedback.")]
+        [Range(0.1f, 0.5f)] public float blockHopTime = 0.26f;
+        [Tooltip("Apex of the hop in world units, measured along the CAMERA's up axis (leaned " +
+                 "toward the camera by BlockHop.TowardCameraShare) — not world +Y, which the " +
+                 "75deg pitch would flatten to almost nothing on screen.")]
+        [Range(0f, 3f)] public float blockHopHeight = 1.15f;
 
         [Header("Rotation (drag only — the structure never spins by itself)")]
         public float rotateSensitivity = 0.3f;
+
+        [Header("Screen")]
+        [Tooltip("Pin the game to a portrait rectangle and pillarbox anything wider. The WebGL " +
+                 "page already hands us a portrait canvas, so this is what covers every host we " +
+                 "do not control — the editor Game view, an embedded iframe, a desktop browser " +
+                 "that ignores the template. Turn it off to get the old follow-the-window " +
+                 "behaviour back, including the landscape UI layouts.")]
+        public bool portraitLock = true;
+        [Tooltip("Aspect (width / height) the lock pins to. 0.5625 is 9:16, which is also the " +
+                 "UI canvas reference resolution (1080x1920) and the WebGL canvas the builder " +
+                 "writes — keep the three in step or the UI is authored for one shape and drawn " +
+                 "in another.")]
+        [Range(0.4f, 1f)] public float portraitAspect = 0.5625f;
 
         [Header("Camera")]
         public bool cameraOrthographic = false;

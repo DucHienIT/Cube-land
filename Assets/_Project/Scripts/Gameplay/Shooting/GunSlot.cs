@@ -16,8 +16,11 @@ namespace CubeBlaster
         IShooterContext _context;
         Gun _gun;
         int _index;
+        bool _incoming;
 
-        public bool IsEmpty => _gun == null;
+        /// False while a tapped block is still in the air, so two taps in the same second cannot
+        /// both aim at this slot and leave the second block with nowhere to land.
+        public bool IsEmpty => _gun == null && !_incoming;
         public int Index => _index;
 
         public void Initialize(IShooterContext context, int index)
@@ -27,9 +30,14 @@ namespace CubeBlaster
             SetRim(IdleRim);
         }
 
+        public void HoldForIncoming() => _incoming = true;
+
+        /// Deploy tests `_gun`, NOT `IsEmpty` — the slot it is landing in is exactly the one that
+        /// is holding for it, so testing IsEmpty here would reject every deploy.
         public bool Deploy(int ammo, int colorIndex)
         {
-            if (!IsEmpty) return false;
+            _incoming = false;
+            if (_gun != null) return false;
 
             _gun = Instantiate(gunPrefab, transform);
             _gun.transform.localPosition = Vector3.zero;

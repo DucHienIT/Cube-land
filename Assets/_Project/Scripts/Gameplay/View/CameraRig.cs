@@ -26,6 +26,18 @@ namespace CubeBlaster
         {
             Main = sceneCamera;
             Rig = this;
+            ApplyViewport();
+        }
+
+        /// The portrait lock is a camera rect, not a resize: the window keeps whatever shape the
+        /// host gave it and we simply stop drawing into the sides. `Camera.aspect` follows the
+        /// rect, so the framing solver, `ScreenPointToRay` and the backdrop's frustum fit all pick
+        /// the portrait shape up for free — RefitOnAspectChange below is what re-solves the frame.
+        void ApplyViewport()
+        {
+            if (sceneCamera == null) return;
+            var viewport = ScreenLayout.Viewport;
+            if (sceneCamera.rect != viewport) sceneCamera.rect = viewport;
         }
 
         public void FitTo(SculptureFrame sculpture)
@@ -59,6 +71,7 @@ namespace CubeBlaster
 
         void LateUpdate()
         {
+            ApplyViewport();
             RefitOnAspectChange();
 
             if (_shake > ShakeEpsilon)

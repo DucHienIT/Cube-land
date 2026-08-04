@@ -3,22 +3,30 @@ using UnityEngine;
 
 namespace CubeBlaster
 {
-    public sealed class BlockDragGesture : IPointerGesture
+    /// Tap a front-row bank block and it hops into the first free shooter slot.
+    ///
+    /// This replaced a drag gesture (2026-08-03). Dragging let the player choose WHICH slot, which
+    /// the tap path never did, and the choice was worth nothing: the slots are interchangeable —
+    /// they hold the same gun, fire at the same rate, and the block carries its own colour — so
+    /// the drag was a longer way to say what a tap already says.
+    ///
+    /// The press is claimed here rather than deployed on the spot so a press that turns into a
+    /// drag is discarded instead of firing a deploy the player did not mean. It is NOT forwarded
+    /// to the turntable: the bank sits well below the sculpture, so a spin that starts on a block
+    /// is a misgrab, and swallowing it is better than spinning the board by accident.
+    public sealed class BlockTapGesture : IPointerGesture
     {
         const float TapMovePixels = 18f;
-        const float SlotSnapPixels = 130f;
         const float PickRayLength = 100f;
-        const float DragLift = 0.6f;
 
         readonly IBoardContext _board;
         readonly Func<Camera> _camera;
 
         BankBlock _block;
-        Plane _dragPlane;
         Vector2 _pressPosition;
         bool _moved;
 
-        public BlockDragGesture(IBoardContext board, Func<Camera> camera)
+        public BlockTapGesture(IBoardContext board, Func<Camera> camera)
         {
             _board = board ?? throw new ArgumentNullException(nameof(board));
             _camera = camera ?? throw new ArgumentNullException(nameof(camera));
@@ -36,41 +44,28 @@ namespace CubeBlaster
             _block = block;
             _pressPosition = screenPosition;
             _moved = false;
-            _dragPlane = new Plane(-camera.transform.forward, block.transform.position);
             return true;
         }
 
         public void Drag(Vector2 screenPosition)
         {
-            var camera = _camera();
-            if (_block == null || camera == null) return;
-
             if ((screenPosition - _pressPosition).magnitude > TapMovePixels) _moved = true;
-
-            var ray = camera.ScreenPointToRay(screenPosition);
-            if (!_dragPlane.Raycast(ray, out float enter)) return;
-            _block.FollowTo(ray.GetPoint(enter) - camera.transform.forward * DragLift);
         }
 
         public void End(Vector2 screenPosition)
         {
             var block = _block;
             _block = null;
-            if (block == null) return;
+            if (block == null || _moved || block.Consumed) return;
 
-            var slot = _moved
-                ? _board.FindNearestEmptySlot(screenPosition, SlotSnapPixels, _camera())
-                : _board.FindFirstEmptySlot();
-
+            var slot = _board.FindFirstEmptySlot();
             if (slot != null && _board.DeployBlock(block, slot)) return;
-            block.ReturnHome();
+
+            // Every slot busy, or the colour is already cleared. Saying nothing reads as a dropped
+            // input, so the block answers the tap even when it cannot be played.
+            block.RejectTap();
         }
 
-        public void Cancel()
-        {
-            if (_block == null) return;
-            _block.ReturnHome();
-            _block = null;
-        }
+        public void Cancel() => _block = null;
     }
 }

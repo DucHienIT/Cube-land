@@ -18,6 +18,7 @@ namespace CubeBlaster
         void Awake()
         {
             ApplyConfigs();
+            ApplyScreenLock();
             ApplyApplicationSettings();
             ApplyCameraSettings();
             ApplyLighting();
@@ -28,6 +29,15 @@ namespace CubeBlaster
             GameConfig.Use(gameConfig);
             PaletteConfig.Use(paletteConfig);
             VisualLibrary.Use(visualLibrary);
+        }
+
+        /// Runs before CameraRig.Awake and UIController.Initialize (execution order -100), so the
+        /// camera is pillarboxed and the UI is sized against the portrait slice from the very
+        /// first frame rather than snapping over on the second one.
+        void ApplyScreenLock()
+        {
+            var config = GameConfig.Active;
+            ScreenLayout.Lock(config.portraitLock ? config.portraitAspect : 0f);
         }
 
         void ApplyApplicationSettings()

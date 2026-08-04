@@ -1325,7 +1325,11 @@ namespace CubeBlaster.EditorTools
             }
             else Debug.LogWarning("[VisualAssetBaker] No Camera found in scene — camera refs not wired.");
 
-            if (ui != null) SetRef(ui, "root", ui.GetComponent<RectTransform>());
+            if (ui != null)
+            {
+                SetRef(ui, "root", ui.GetComponent<RectTransform>());
+                SetRef(ui, "canvasScaler", ui.GetComponent<UnityEngine.UI.CanvasScaler>());
+            }
 
             if (audio != null)
             {

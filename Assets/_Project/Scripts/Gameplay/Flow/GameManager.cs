@@ -184,34 +184,39 @@ namespace CubeBlaster
             return null;
         }
 
-        public GunSlot FindNearestEmptySlot(Vector2 screenPosition, float maxPixels, Camera camera)
-        {
-            if (camera == null) return null;
-
-            GunSlot best = null;
-            float bestDistance = maxPixels;
-            foreach (var slot in _slots)
-            {
-                if (slot == null || !slot.IsEmpty) continue;
-                Vector3 projected = camera.WorldToScreenPoint(slot.transform.position);
-                if (projected.z < 0f) continue;
-
-                float distance = Vector2.Distance(screenPosition, projected);
-                if (distance >= bestDistance) continue;
-                bestDistance = distance;
-                best = slot;
-            }
-            return best;
-        }
-
+        /// A tap does not deploy the gun — it launches the block. The gun appears when the block
+        /// lands (see BankBlock.HopTo), so the ammo the player picked is visibly the ammo the
+        /// cannon gets. Everything that decides whether the play is LEGAL still happens now, on
+        /// the tap: the slot is held so a second tap cannot claim it, and the block leaves the
+        /// queue immediately so the lane behind it slides forward while it is still in the air.
         public bool DeployBlock(BankBlock block, GunSlot slot)
         {
-            if (block == null || slot == null || !slot.IsEmpty) return false;
+            if (block == null || slot == null || !slot.IsEmpty || block.Consumed) return false;
             if (CountAliveOfColor(block.ColorIndex) <= 0) return false;
-            if (!slot.Deploy(block.Value, block.ColorIndex)) return false;
 
-            bank.Consume(block);
+            int ammo = block.Value;
+            int colorIndex = block.ColorIndex;
+            var config = GameConfig.Active;
+
+            slot.HoldForIncoming();
+            bank.Detach(block);
             AudioService.Current.PlayClick();
+
+            block.HopTo(slot.transform.position, CameraRig.Main,
+                config.blockHopHeight, config.blockHopTime, () =>
+                {
+                    // The landing can outlive the play it belongs to: TeardownLevel destroys the
+                    // slots but leaves the board's blocks on screen behind the menu, so a tap
+                    // followed straight away by Menu/Level Select lands into a destroyed slot
+                    // (MissingReferenceException, hit during verification). The block cleans
+                    // itself up either way — only the deploy is conditional.
+                    if (slot != null && _state == GameState.Playing)
+                    {
+                        slot.Deploy(ammo, colorIndex);
+                        AudioService.Current.PlayThunk();
+                    }
+                    block.Consume();
+                });
             return true;
         }
 
