@@ -1,8 +1,18 @@
 # Cube Land
 
+<p align="center">
+  <img src="Assets/_Project/Art/AppIcon/CubeBlaster_AppIcon_Cannon_1024.png" alt="Cube Cannon app icon" width="200">
+</p>
+
 Cube Land is a portrait-oriented voxel destruction puzzle game built with Unity. Pick numbered color blocks from the bank to deploy matching cannons, keep every cannon supplied, and clear the rotating voxel sculpture as quickly as possible.
 
 The Unity player name is currently **Cube Cannon**.
+
+## Play
+
+**[▶ Play in your browser — cube-cannon.netlify.app](https://cube-cannon.netlify.app)**
+
+The WebGL build is portrait-locked (1080 x 1920) and pillarboxes wider windows, so it works on both desktop browsers and phones.
 
 ## Gameplay
 
